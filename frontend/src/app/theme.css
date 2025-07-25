@@ -1,0 +1,49 @@
+/* frontend/src/app/theme.css */
+
+/* Original Color Hunt Palette: https://colorhunt.co/palette/3334467f8caab8cfceeaefef */
+/* :root {
+  --color-dark-blue-gray: #333446;
+  --color-medium-blue-gray: #7f8caa;
+  --color-light-blue-gray: #b8cfce;
+  --color-off-white: #eaefef;
+} */
+
+/* Refined Blue-Gray Palette - Inspired by provided image */
+:root {
+  --color-primary: #4a5568; /* Dark Blue Gray */
+  --color-secondary: #718096; /* Medium Blue Gray */
+  --color-accent: #a2b2c1; /* Light Blue Gray */
+  --color-background: #e2e8f0; /* Very Light Gray */
+  --color-text: #2d3748; /* Dark Slate for text */
+
+  /* Example usage of these colors - you can expand this as needed */
+  --background-primary: var(--color-background);
+  --text-primary: var(--color-text);
+  --text-secondary: var(--color-secondary);
+  --accent-color: var(--color-accent);
+}
+
+body {
+  background-color: var(--background-primary);
+  color: var(--text-primary);
+}
+
+/* Custom Scrollbar Styles for this theme */
+::-webkit-scrollbar {
+  width: 6px; /* 얇지만 인식 가능한 너비 */
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-background); /* 어두운 배경색과 어울리는 트랙 색상 */
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-secondary); /* 부드러운 중간 색상 엄지 */
+  border-radius: 3px; /* 둥근 모서리 */
+  transition: background-color 0.2s ease-in-out; /* 부드러운 전환 */
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-accent); /* 호버 시 약간 밝아지도록 */
+}
