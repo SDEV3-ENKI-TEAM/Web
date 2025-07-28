@@ -2,7 +2,6 @@ export interface Event {
   id: number;
   timestamp: string;
   user: string;
-  anomaly: number;
   label: "Normal" | "Anomaly";
   event: string;
 }

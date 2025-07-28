@@ -2,10 +2,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from security_log_analyzer import SecurityLogAnalyzer
 from opensearch_analyzer import OpenSearchAnalyzer
 import re
+import json
+import os
 
 app = FastAPI()
 
@@ -21,6 +23,13 @@ app.add_middleware(
 # 분석기 인스턴스 생성 (Elasticsearch 제거, OpenSearch만 사용)
 analyzer = SecurityLogAnalyzer()
 opensearch_analyzer = OpenSearchAnalyzer()
+
+def to_korea_time(utc_timestamp_ms: int) -> str:
+    """UTC 타임스탬프를 한국 시간으로 변환합니다."""
+    utc_dt = datetime.fromtimestamp(utc_timestamp_ms / 1000, tz=timezone.utc)
+    korea_tz = timezone(timedelta(hours=9))
+    korea_dt = utc_dt.astimezone(korea_tz)
+    return korea_dt.strftime('%Y-%m-%dT%H:%M:%S')
 
 class LogEntry(BaseModel):
     timestamp: datetime
@@ -413,18 +422,14 @@ async def get_dashboard():
 @app.get("/api/dashboard-stats")
 async def get_dashboard_stats():
     try:
-        spans_data = opensearch_analyzer.get_jaeger_spans(limit=1000, offset=0)
-        docs = spans_data.get('hits', [])
-        anomaly_values = [doc.get('_source', {}).get('tag', {}).get('anomaly', 0.0) for doc in docs if isinstance(doc.get('_source', {}).get('tag', {}).get('anomaly', 0.0), (int, float))]
-        fallback_values = [doc.get('_source', {}).get('duration', 0.0) for doc in docs if isinstance(doc.get('_source', {}).get('duration', 0.0), (int, float))]
-        avg_anomaly = sum(anomaly_values) / len(anomaly_values) if anomaly_values else (sum(fallback_values) / len(fallback_values) if fallback_values else 0.0)
-        highest_score = max(anomaly_values) if anomaly_values else (max(fallback_values) if fallback_values else 0.0)
-        anomalies = sum(1 for doc in docs if doc.get('_source', {}).get('tag', {}).get('anomaly') is not None or doc.get('_source', {}).get('tag', {}).get('error') is True)
+        # Trace 기반 통계 사용
+        trace_stats = await get_trace_stats()
+        
         return {
-            "totalEvents": len(docs),
-            "anomalies": anomalies,
-            "avgAnomaly": avg_anomaly,
-            "highestScore": highest_score,
+            "totalEvents": trace_stats["totalTraces"],  # Trace 단위로 변경
+            "anomalies": trace_stats["anomalyTraces"],  # 위험한 Trace 수
+            "avgAnomaly": trace_stats["avgDuration"],   # 평균 Trace duration
+            "highestScore": trace_stats["totalAlerts"],  # 총 알럿 수
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -447,23 +452,23 @@ async def get_alarm_traces(offset: int = 0, limit: int = 50):
             "size": max(limit * 5, 200),
             "from": 0
         }
-        response = opensearch_analyzer.client.search(index="jaeger-span-*", body=query)
+        response = opensearch_analyzer.client.search(index="jaeger-span-*", body=query)                                               
         alarms = []
         seen_trace_ids = set()
-        for span in response['hits']['hits']:
+        for span in response['hits']['hits']:                     
             src = span['_source']
             trace_id = src.get("traceID", "")
             if trace_id in seen_trace_ids:
-                continue  # traceID별로 하나만
+                continue                                  
             seen_trace_ids.add(trace_id)
             tag = src.get('tag', {})
             alarms.append({
                 "trace_id": trace_id,
-                "detected_at": src.get("startTimeMillis", 0),
+                "detected_at": to_korea_time(src.get("startTimeMillis", 0)),
                 "summary": src.get("operationName") or "-",    # AI 요약(추후), 없으면 "-"
                 "host": tag.get("User", "-"),
                 "os": tag.get("Product", "-"),
-                "checked": False
+                "checked": get_alarm_checked_status(trace_id)
             })
         total = len(alarms)
         paged = alarms[offset:offset+limit]
@@ -471,6 +476,275 @@ async def get_alarm_traces(offset: int = 0, limit: int = 50):
         return {"alarms": paged, "total": total, "offset": offset, "limit": limit, "hasMore": has_more}
     except Exception as e:
         print(f"알람 API 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class AlarmStatusUpdate(BaseModel):
+    trace_id: str
+    checked: bool
+
+@app.post("/api/alarms/check")
+async def update_alarm_status(alarm_update: AlarmStatusUpdate):
+    """알림 상태를 업데이트합니다."""
+    try:
+        # 알림 상태를 저장할 파일 경로
+        status_file = "alarm_status.json"
+        
+        # 기존 상태 로드
+        alarm_status = {}
+        if os.path.exists(status_file):
+            try:
+                with open(status_file, 'r', encoding='utf-8') as f:
+                    alarm_status = json.load(f)
+            except:
+                alarm_status = {}
+        
+        # 상태 업데이트
+        alarm_status[alarm_update.trace_id] = alarm_update.checked
+        
+        # 파일에 저장
+        with open(status_file, 'w', encoding='utf-8') as f:
+            json.dump(alarm_status, f, ensure_ascii=False, indent=2)
+        
+        return {"success": True, "message": "알림 상태가 업데이트되었습니다."}
+    except Exception as e:
+        print(f"알림 상태 업데이트 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+def get_alarm_checked_status(trace_id: str) -> bool:
+    """알림의 확인 상태를 반환합니다."""
+    try:
+        status_file = "alarm_status.json"
+        if os.path.exists(status_file):
+            with open(status_file, 'r', encoding='utf-8') as f:
+                alarm_status = json.load(f)
+                return alarm_status.get(trace_id, False)
+        return False
+    except:
+        return False
+
+@app.get("/api/timeseries")
+async def get_timeseries():
+    try:
+        spans_data = opensearch_analyzer.get_jaeger_spans(limit=1000)
+        result = []
+        
+        # 개별 스팬 데이터를 시간순으로 정렬하여 반환
+        for span in spans_data['hits']:
+            src = span['_source']
+            ts = src.get('startTimeMillis')
+            duration = src.get('duration', 0)
+            
+            if not ts:
+                continue
+                
+            timestamp = to_korea_time(ts)
+            
+            result.append({
+                "timestamp": timestamp,
+                "duration": duration,
+                "operationName": src.get('operationName', ''),
+                "serviceName": src.get('serviceName', '')
+            })
+        
+        result.sort(key=lambda x: x['timestamp'])
+        
+        if len(result) > 30:
+            step = len(result) // 30
+            result = result[::step]
+        
+
+        if not result:
+            now = datetime.now(timezone(timedelta(hours=9)))  # 한국 시간
+            for i in range(10):
+                timestamp = (now - timedelta(minutes=i*5)).strftime('%Y-%m-%dT%H:%M:%S')
+                duration = 100 + (i * 50) + (i % 3 * 20)
+                result.append({
+                    "timestamp": timestamp,
+                    "duration": duration,
+                    "operationName": "sample_operation",
+                    "serviceName": "sample_service"
+                })
+            result.reverse()
+        
+        return result
+    except Exception as e:
+        print(f"/api/timeseries 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/trace-timeseries")
+async def get_trace_timeseries():
+    """Trace 단위 시계열 데이터를 반환합니다."""
+    try:
+        spans_data = opensearch_analyzer.get_jaeger_spans(limit=1000)
+        trace_groups = {}
+        
+        # Trace ID별로 스팬 그룹화
+        for span in spans_data['hits']:
+            src = span['_source']
+            trace_id = src.get('traceID', '')
+            ts = src.get('startTimeMillis')
+            
+            if not ts or not trace_id:
+                continue
+            
+            if trace_id not in trace_groups:
+                trace_groups[trace_id] = {
+                    'start_time': ts,
+                    'total_duration': 0,
+                    'span_count': 0,
+                    'has_anomaly': False,
+                    'operation_name': src.get('operationName', ''),
+                    'service_name': src.get('serviceName', '')
+                }
+            
+            trace_groups[trace_id]['total_duration'] += src.get('duration', 0)
+            trace_groups[trace_id]['span_count'] += 1
+            
+            # 위험 판단
+            tag = src.get('tag', {})
+            is_anomaly = (
+                tag.get('anomaly') is not None or
+                tag.get('error') is True or
+                tag.get('otel@status_code') == 'ERROR' or
+                tag.get('sigma@alert') is not None
+            )
+            
+            if is_anomaly:
+                trace_groups[trace_id]['has_anomaly'] = True
+        
+        # Trace 데이터를 시간순으로 정렬
+        result = []
+        for trace_id, trace_data in trace_groups.items():
+            timestamp = to_korea_time(trace_data['start_time'])
+            
+            result.append({
+                "timestamp": timestamp,
+                "duration": trace_data['total_duration'],
+                "trace_id": trace_id,
+                "span_count": trace_data['span_count'],
+                "has_anomaly": trace_data['has_anomaly'],
+                "operation_name": trace_data['operation_name'],
+                "service_name": trace_data['service_name']
+            })
+        
+        result.sort(key=lambda x: x['timestamp'])
+        
+        # 데이터가 너무 많으면 샘플링 (최대 30개)
+        if len(result) > 30:
+            step = len(result) // 30
+            result = result[::step]
+        
+        # 데이터가 없으면 샘플 데이터 생성
+        if not result:
+            now = datetime.now(timezone(timedelta(hours=9)))  # 한국 시간
+            for i in range(10):
+                timestamp = (now - timedelta(minutes=i*5)).strftime('%Y-%m-%dT%H:%M:%S')
+                duration = 500 + (i * 100) + (i % 3 * 50)  # Trace는 더 긴 duration
+                result.append({
+                    "timestamp": timestamp,
+                    "duration": duration,
+                    "trace_id": f"sample_trace_{i}",
+                    "span_count": 3 + (i % 5),
+                    "has_anomaly": i % 3 == 0,
+                    "operation_name": "sample_trace_operation",
+                    "service_name": "sample_service"
+                })
+            result.reverse()
+        
+        return result
+    except Exception as e:
+        print(f"/api/trace-timeseries 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/donut-stats")
+async def get_donut_stats():
+    """도넛 차트용 정상/위험 Trace 통계를 반환합니다."""
+    try:
+        # Trace 기반 통계 사용
+        trace_stats = await get_trace_stats()
+        
+        return {
+            "normalCount": trace_stats["normalTraces"],
+            "anomalyCount": trace_stats["anomalyTraces"],
+            "total": trace_stats["totalTraces"],
+            "normalPercentage": trace_stats["normalPercentage"],
+            "anomalyPercentage": trace_stats["anomalyPercentage"],
+            "processed": trace_stats["totalTraces"],
+            "failed": 0
+        }
+    except Exception as e:
+        print(f"/api/donut-stats 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/trace-stats")
+async def get_trace_stats():
+    """Trace 단위로 집계된 통계를 반환합니다."""
+    try:
+        spans_data = opensearch_analyzer.get_jaeger_spans(limit=1000)
+        trace_groups = {}
+        
+        # Trace ID별로 스팬 그룹화
+        for span in spans_data['hits']:
+            src = span['_source']
+            trace_id = src.get('traceID', '')
+            
+            if trace_id not in trace_groups:
+                trace_groups[trace_id] = {
+                    'spans': [],
+                    'start_time': src.get('startTimeMillis', 0),
+                    'total_duration': 0,
+                    'has_anomaly': False,
+                    'alert_count': 0,
+                    'span_count': 0
+                }
+            
+            trace_groups[trace_id]['spans'].append(src)
+            trace_groups[trace_id]['span_count'] += 1
+            trace_groups[trace_id]['total_duration'] += src.get('duration', 0)
+            
+            # 위험 판단
+            tag = src.get('tag', {})
+            is_anomaly = (
+                tag.get('anomaly') is not None or
+                tag.get('error') is True or
+                tag.get('otel@status_code') == 'ERROR' or
+                tag.get('sigma@alert') is not None
+            )
+            
+            if is_anomaly:
+                trace_groups[trace_id]['has_anomaly'] = True
+                trace_groups[trace_id]['alert_count'] += 1
+        
+        # 통계 계산
+        total_traces = len(trace_groups)
+        normal_traces = sum(1 for trace in trace_groups.values() if not trace['has_anomaly'])
+        anomaly_traces = sum(1 for trace in trace_groups.values() if trace['has_anomaly'])
+        
+        # 평균 지속 시간 계산
+        total_duration = sum(trace['total_duration'] for trace in trace_groups.values())
+        avg_duration = total_duration / total_traces if total_traces > 0 else 0
+        
+        # 데이터가 없으면 기본값 설정
+        if total_traces == 0:
+            normal_traces = 4
+            anomaly_traces = 10
+            total_traces = 14
+        
+        normal_percentage = round((normal_traces / total_traces) * 100, 1) if total_traces > 0 else 0
+        anomaly_percentage = round((anomaly_traces / total_traces) * 100, 1) if total_traces > 0 else 0
+        
+        return {
+            "totalTraces": total_traces,
+            "normalTraces": normal_traces,
+            "anomalyTraces": anomaly_traces,
+            "normalPercentage": normal_percentage,
+            "anomalyPercentage": anomaly_percentage,
+            "avgDuration": avg_duration,
+            "totalSpans": sum(trace['span_count'] for trace in trace_groups.values()),
+            "totalAlerts": sum(trace['alert_count'] for trace in trace_groups.values())
+        }
+    except Exception as e:
+        print(f"/api/trace-stats 오류: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

@@ -40,7 +40,7 @@ function convertEventToEventDetail(event: Event): EventDetailType {
   return {
     id: event.id,
     date: new Date(event.timestamp).toLocaleString("ko-KR"),
-    anomalyScore: event.anomaly,
+    anomalyScore: event.label === "Anomaly" ? 1.0 : 0.0,
     incident: `보안 이벤트 감지: 사용자 ${event.user}가 ${
       event.event
     } 활동을 수행했습니다. ${
@@ -55,7 +55,7 @@ function convertEventToEventDetail(event: Event): EventDetailType {
       location: "위치 정보 없음",
       timestamp: event.timestamp,
       event_type: event.event,
-      anomaly_score: event.anomaly.toFixed(3),
+      anomaly_score: event.label === "Anomaly" ? "1.000" : "0.000",
       status: event.label,
     },
   };
@@ -65,6 +65,7 @@ export default function Dashboard() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
+  const [alarms, setAlarms] = useState<any[]>([]);
   const [stats, setStats] = useState<Stats>({
     totalEvents: 0,
     anomalies: 0,
@@ -73,6 +74,7 @@ export default function Dashboard() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [timeseriesData, setTimeseriesData] = useState<any[]>([]);
 
   const { currentUser, logout } = useAuth();
   const router = useRouter();
@@ -83,12 +85,14 @@ export default function Dashboard() {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [eventsData, statsData] = await Promise.all([
+        const [eventsData, statsData, alarmsData] = await Promise.all([
           fetchEvents(),
           fetchStats(),
+          fetch("/api/alarms?offset=0&limit=10").then((res) => res.json()),
         ]);
         setEvents(eventsData);
         setStats(statsData);
+        setAlarms(alarmsData.alarms || []);
         setError(null);
       } catch (err) {
         console.error("Failed to load data:", err);
@@ -99,6 +103,22 @@ export default function Dashboard() {
     };
 
     loadData();
+  }, []);
+
+  // 시계열 데이터 fetch
+  useEffect(() => {
+    const fetchTimeseries = async () => {
+      try {
+        const res = await fetch("/api/timeseries");
+        if (!res.ok) throw new Error("시계열 데이터 요청 실패");
+        const data = await res.json();
+        setTimeseriesData(data);
+      } catch (err) {
+        console.error("시계열 데이터 로드 실패:", err);
+        setTimeseriesData([]);
+      }
+    };
+    fetchTimeseries();
   }, []);
 
   // Debug: 위젯 정보 출력
@@ -292,7 +312,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Average Score */}
+          {/* Risk Ratio */}
           <div className="bg-slate-800/30 rounded border border-slate-700/50 p-4 hover:bg-slate-800/50 transition-all">
             <div className="flex items-center gap-3 mb-2">
               <div className="w-8 h-8 bg-yellow-500/20 rounded border border-yellow-500/30 flex items-center justify-center">
@@ -312,20 +332,29 @@ export default function Dashboard() {
               </div>
               <div className="flex-1">
                 <div className="text-slate-400 text-xs font-mono uppercase tracking-wide">
-                  평균 위험도
+                  위험도 비율
                 </div>
                 <div className="text-yellow-400 text-xl font-mono font-bold">
-                  {stats.avgAnomaly.toFixed(3)}
+                  {stats.totalEvents > 0
+                    ? ((stats.anomalies / stats.totalEvents) * 100).toFixed(1)
+                    : 0}
+                  %
                 </div>
                 <div className="text-slate-500 text-xs mt-1">
-                  위험 수준 (0~1 사이)
+                  위험한 활동의 비율
                 </div>
               </div>
             </div>
             <div className="w-full h-1 bg-slate-700 rounded-full overflow-hidden">
               <div
                 className="h-full bg-yellow-500 rounded-full animate-pulse"
-                style={{ width: `${stats.avgAnomaly * 100}%` }}
+                style={{
+                  width: `${
+                    stats.totalEvents > 0
+                      ? (stats.anomalies / stats.totalEvents) * 100
+                      : 0
+                  }%`,
+                }}
               ></div>
             </div>
           </div>
@@ -419,9 +448,30 @@ export default function Dashboard() {
           <div className="text-red-400 font-mono text-sm">오류: {error}</div>
         </div>
       ) : (
-        <EventTable events={events} onEventSelect={handleEventClick} />
+        <EventTable
+          events={alarms.map((alarm, index) => ({
+            id: index,
+            traceID: alarm.trace_id,
+            operationName: alarm.summary,
+            timestamp: new Date(alarm.detected_at).toLocaleString("ko-KR", {
+              month: "2-digit",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+              hour12: false,
+            }),
+            duration: 0,
+            user: alarm.host,
+            host: alarm.host,
+            os: alarm.os,
+            label: "Anomaly", // alarms는 에러 상태이므로 Anomaly
+            event: alarm.summary,
+          }))}
+          onEventSelect={handleEventClick}
+        />
       ),
-    [loading, error, events, handleEventClick]
+    [loading, error, alarms, handleEventClick]
   );
 
   const eventDetailWidget = useMemo(
@@ -464,13 +514,7 @@ export default function Dashboard() {
               onRemove={() => console.log("Remove widget:", widget.id)}
               widgetType="timeseries"
             >
-              <TimeSeriesChart
-                data={events.map((e) => ({
-                  timestamp: e.timestamp,
-                  anomalyScore: e.anomaly,
-                  label: e.label,
-                }))}
-              />
+              <TimeSeriesChart data={timeseriesData} />
             </WidgetWrapper>
           );
         case "donutchart":
@@ -527,7 +571,7 @@ export default function Dashboard() {
           return null;
       }
     },
-    [statsWidget, eventTableWidget, eventDetailWidget]
+    [statsWidget, eventTableWidget, eventDetailWidget, timeseriesData]
   );
 
   return (

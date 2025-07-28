@@ -58,12 +58,6 @@ export default function EventTable({ events, onEventSelect }: EventTableProps) {
     });
   };
 
-  const getAnomalyColor = (score: number) => {
-    if (score > 0.7) return "text-red-400";
-    if (score > 0.4) return "text-yellow-400";
-    return "text-green-400";
-  };
-
   return (
     <div className="h-full flex flex-col bg-slate-900/30 font-mono border border-slate-700/50 rounded-lg overflow-hidden">
       {/* Terminal Output Header */}
@@ -104,27 +98,13 @@ export default function EventTable({ events, onEventSelect }: EventTableProps) {
               </span>
             )}
           </div>
-          <div
-            onClick={(e) => handleSortClick(e, "anomaly")}
-            onMouseDown={preventDrag}
-            onDragStart={preventDrag}
-            onPointerDown={preventDrag}
-            className="col-span-2 cursor-pointer hover:text-blue-400 transition-colors flex items-center justify-center gap-1 no-drag text-center"
-          >
-            위험도
-            {sortField === "anomaly" && (
-              <span className="text-blue-400">
-                {sortDirection === "asc" ? "↑" : "↓"}
-              </span>
-            )}
-          </div>
-          <div className="col-span-2 text-center no-drag">상태</div>
+          <div className="col-span-3 text-center no-drag">상태</div>
           <div
             onClick={(e) => handleSortClick(e, "event")}
             onMouseDown={preventDrag}
             onDragStart={preventDrag}
             onPointerDown={preventDrag}
-            className="col-span-3 cursor-pointer hover:text-blue-400 transition-colors flex items-center justify-center gap-1 no-drag text-center"
+            className="col-span-4 cursor-pointer hover:text-blue-400 transition-colors flex items-center justify-center gap-1 no-drag text-center"
           >
             이벤트 유형
             {sortField === "event" && (
@@ -195,45 +175,26 @@ export default function EventTable({ events, onEventSelect }: EventTableProps) {
                   {event.user}
                 </div>
 
-                {/* Anomaly Score */}
-                <div
-                  className={`col-span-2 font-mono font-bold text-center ${
-                    selectedEventId === event.id
-                      ? "text-white"
-                      : getAnomalyColor(event.anomaly)
-                  }`}
-                >
-                  {event.anomaly.toFixed(3)}
-                </div>
-
                 {/* Status Badge */}
-                <div className="col-span-2 flex justify-center">
+                <div className="col-span-3 flex justify-center">
                   <span
                     className={`py-1 rounded text-xs font-bold border w-20 flex items-center justify-center ${
                       selectedEventId === event.id
-                        ? event.anomaly > 0.7
+                        ? event.label === "Anomaly"
                           ? "bg-red-500/40 border-red-400/70 text-red-200"
-                          : event.anomaly > 0.4
-                          ? "bg-yellow-500/40 border-yellow-400/70 text-yellow-200"
                           : "bg-green-500/40 border-green-400/70 text-green-200"
-                        : event.anomaly > 0.7
+                        : event.label === "Anomaly"
                         ? "bg-red-500/20 border-red-500/50 text-red-300"
-                        : event.anomaly > 0.4
-                        ? "bg-yellow-500/20 border-yellow-500/50 text-yellow-300"
                         : "bg-green-500/20 border-green-500/50 text-green-300"
                     }`}
                   >
-                    {event.anomaly > 0.7
-                      ? "위험"
-                      : event.anomaly > 0.4
-                      ? "주의"
-                      : "정상"}
+                    {event.label === "Anomaly" ? "위험" : "정상"}
                   </span>
                 </div>
 
                 {/* Event Type */}
                 <div
-                  className={`col-span-3 font-mono text-center ${
+                  className={`col-span-4 font-mono text-center ${
                     selectedEventId === event.id
                       ? "text-blue-200"
                       : "text-slate-300"

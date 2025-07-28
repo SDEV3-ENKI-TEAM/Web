@@ -111,14 +111,40 @@ export default function AlarmsPage() {
     }
   }
 
-  const handleCheck = (trace_id: string) => {
-    setAlarms((prev) =>
-      prev.map((alarm) =>
-        alarm.trace_id === trace_id
-          ? { ...alarm, checked: !alarm.checked }
-          : alarm
-      )
-    );
+  const handleCheck = async (trace_id: string) => {
+    try {
+      // 현재 알림의 상태를 찾아서 토글
+      const currentAlarm = alarms.find((alarm) => alarm.trace_id === trace_id);
+      const newCheckedStatus = !currentAlarm?.checked;
+
+      // 백엔드에 상태 업데이트 요청
+      const response = await fetch("/api/alarms/check", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          trace_id: trace_id,
+          checked: newCheckedStatus,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("상태 업데이트 실패");
+      }
+
+      // 로컬 상태 업데이트
+      setAlarms((prev) =>
+        prev.map((alarm) =>
+          alarm.trace_id === trace_id
+            ? { ...alarm, checked: newCheckedStatus }
+            : alarm
+        )
+      );
+    } catch (error) {
+      console.error("알림 상태 업데이트 실패:", error);
+      alert("알림 상태 업데이트에 실패했습니다.");
+    }
   };
 
   const totalPages = Math.ceil(total / limit);

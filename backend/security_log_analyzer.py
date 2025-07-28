@@ -93,7 +93,6 @@ class SecurityLogAnalyzer:
         
     def detect_anomalies(self, index_name, time_window='1h'):
         """이상 탐지를 수행합니다."""
-        # 시간 윈도우 내의 로그 데이터 수집
         end_time = datetime.now()
         start_time = end_time - timedelta(hours=1)
         
@@ -114,19 +113,16 @@ class SecurityLogAnalyzer:
             size=1000
         )
         
-        # 데이터 전처리
         logs = [hit['_source'] for hit in response['hits']['hits']]
         if not logs:
             return []
             
         df = pd.DataFrame(logs)
         
-        # 이상 탐지 모델 학습 및 예측
         model = IsolationForest(contamination=0.1, random_state=42)
         features = df[['bytes', 'port']].fillna(0)
         df['anomaly_score'] = model.fit_predict(features)
         
-        # 이상 탐지된 로그 반환
         anomalies = df[df['anomaly_score'] == -1].to_dict('records')
         return anomalies
         
@@ -135,7 +131,6 @@ class SecurityLogAnalyzer:
         end_time = datetime.now()
         start_time = end_time - timedelta(hours=1)
         
-        # 기본 집계 쿼리
         query = {
             "size": 0,
             "query": {

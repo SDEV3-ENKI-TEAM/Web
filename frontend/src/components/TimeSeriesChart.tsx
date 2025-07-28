@@ -27,7 +27,15 @@ ChartJS.register(
 );
 
 interface TimeSeriesChartProps {
-  data?: Array<{ timestamp: string; duration: number }>;
+  data?: Array<{
+    timestamp: string;
+    duration: number;
+    has_anomaly?: boolean;
+    trace_id?: string;
+    span_count?: number;
+    operation_name?: string;
+    service_name?: string;
+  }>;
   title?: string;
   color?: string;
 }
@@ -39,22 +47,54 @@ export default function TimeSeriesChart({
 }: TimeSeriesChartProps) {
   // 예시/mock 데이터 (없을 때)
   const mockData = [
-    { timestamp: "2024-07-24T18:06:40", duration: 800 },
-    { timestamp: "2024-07-24T18:15:00", duration: 200 },
-    { timestamp: "2024-07-24T18:20:00", duration: 600 },
+    {
+      timestamp: "2024-07-24T18:06:40",
+      duration: 800,
+      has_anomaly: false,
+      trace_id: "sample_trace_1",
+      span_count: 3,
+      operation_name: "sample_operation",
+    },
+    {
+      timestamp: "2024-07-24T18:15:00",
+      duration: 200,
+      has_anomaly: true,
+      trace_id: "sample_trace_2",
+      span_count: 5,
+      operation_name: "error_operation",
+    },
+    {
+      timestamp: "2024-07-24T18:20:00",
+      duration: 600,
+      has_anomaly: false,
+      trace_id: "sample_trace_3",
+      span_count: 2,
+      operation_name: "normal_operation",
+    },
   ];
 
-  const chartData = data || mockData;
+  const chartData = data && data.length > 0 ? data : mockData;
 
-  const labels = chartData.map((item) =>
-    new Date(item.timestamp).toLocaleTimeString("ko-KR", {
+  const labels = chartData.map((item) => {
+    const date = new Date(item.timestamp);
+    return date.toLocaleTimeString("ko-KR", {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
-    })
-  );
+      timeZone: "Asia/Seoul",
+    });
+  });
 
   const dataset = chartData.map((item) => item.duration);
+
+  // 에러가 있는 데이터 포인트를 빨간색으로 표시
+  const pointBackgroundColors = chartData.map((item) =>
+    item.has_anomaly ? "#ef4444" : color
+  );
+
+  const pointBorderColors = chartData.map((item) =>
+    item.has_anomaly ? "#dc2626" : color
+  );
 
   const chartConfig = {
     labels,
@@ -63,12 +103,14 @@ export default function TimeSeriesChart({
         label: "Duration (ms)",
         data: dataset,
         borderColor: color,
-        backgroundColor: color,
-        pointRadius: 7,
-        pointBackgroundColor: color,
-        fill: false,
-        tension: 0.2,
-        showLine: false, // 점만 찍힘
+        backgroundColor: `${color}20`,
+        pointRadius: chartData.map((item) => (item.has_anomaly ? 6 : 4)), // 에러 포인트는 더 크게
+        pointBackgroundColor: pointBackgroundColors,
+        pointBorderColor: pointBorderColors,
+        pointBorderWidth: 2,
+        fill: true,
+        tension: 0.3,
+        showLine: true,
       },
     ],
   };
@@ -111,10 +153,22 @@ export default function TimeSeriesChart({
           label: function (context: any) {
             const dataIndex = context.dataIndex;
             const item = chartData[dataIndex];
-            return [
+            const lines = [
               `Duration: ${context.parsed.y} ms`,
               `Time: ${item.timestamp}`,
             ];
+
+            if (item.trace_id) {
+              lines.push(`Trace ID: ${item.trace_id}`);
+            }
+            if (item.span_count) {
+              lines.push(`Spans: ${item.span_count}개`);
+            }
+            if (item.operation_name) {
+              lines.push(`Operation: ${item.operation_name}`);
+            }
+
+            return lines;
           },
         },
       },
@@ -172,12 +226,18 @@ export default function TimeSeriesChart({
       transition={{ duration: 0.5, delay: 0.2 }}
       className="w-full h-full flex flex-col bg-transparent"
     >
-      <div
-        className="flex-1 min-h-0 p-4 terminal-chart-container h-72"
-        style={{ height: 300 }}
-      >
-        <Line data={chartConfig} options={options} />
-      </div>
+      {chartData.length === 0 ? (
+        <div className="flex items-center justify-center h-72 text-slate-400 font-mono text-sm">
+          시계열 데이터를 불러오는 중...
+        </div>
+      ) : (
+        <div
+          className="flex-1 min-h-0 p-4 terminal-chart-container h-72"
+          style={{ height: 300 }}
+        >
+          <Line data={chartConfig} options={options} />
+        </div>
+      )}
     </motion.div>
   );
 }
