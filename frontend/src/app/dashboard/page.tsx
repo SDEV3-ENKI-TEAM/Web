@@ -76,6 +76,12 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [timeseriesData, setTimeseriesData] = useState<any[]>([]);
 
+  // 무한스크롤 관련 상태
+  const [infiniteAlarms, setInfiniteAlarms] = useState<any[]>([]);
+  const [infiniteLoading, setInfiniteLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [cursor, setCursor] = useState<string | null>(null);
+
   const { currentUser, logout } = useAuth();
   const router = useRouter();
   const { widgets } = useDashboard();
@@ -105,7 +111,53 @@ export default function Dashboard() {
     loadData();
   }, []);
 
-  // 시계열 데이터 fetch
+  // 무한스크롤 초기 데이터 로드
+  useEffect(() => {
+    const loadInfiniteAlarms = async () => {
+      try {
+        setInfiniteLoading(true);
+        const response = await fetch("/api/alarms/infinite?limit=20");
+        if (!response.ok) throw new Error("무한스크롤 데이터 요청 실패");
+        const data = await response.json();
+        setInfiniteAlarms(data.alarms || []);
+        setCursor(data.next_cursor);
+        setHasMore(data.has_more);
+      } catch (err) {
+        console.error("무한스크롤 데이터 로드 실패:", err);
+        setInfiniteAlarms([]);
+      } finally {
+        setInfiniteLoading(false);
+      }
+    };
+
+    loadInfiniteAlarms();
+  }, []);
+
+  // 더 많은 데이터 로드 함수
+  const loadMoreAlarms = async () => {
+    if (infiniteLoading || !hasMore) return;
+
+    try {
+      setInfiniteLoading(true);
+      const url = cursor
+        ? `/api/alarms/infinite?limit=20&cursor=${encodeURIComponent(cursor)}`
+        : "/api/alarms/infinite?limit=20";
+
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("추가 데이터 요청 실패");
+      const data = await response.json();
+
+      setInfiniteAlarms((prev) => [...prev, ...(data.alarms || [])]);
+      setCursor(data.next_cursor);
+      setHasMore(data.has_more);
+    } catch (err) {
+      console.error("추가 데이터 로드 실패:", err);
+    } finally {
+      setInfiniteLoading(false);
+    }
+  };
+
+  // 시계열 데이터 fetch (주기적 업데이트)
   useEffect(() => {
     const fetchTimeseries = async () => {
       try {
@@ -118,15 +170,15 @@ export default function Dashboard() {
         setTimeseriesData([]);
       }
     };
-    fetchTimeseries();
-  }, []);
 
-  // Debug: 위젯 정보 출력
-  useEffect(() => {
-    console.log("Current widgets:", widgets);
-    console.log("Events:", events.length);
-    console.log("Stats:", stats);
-  }, [widgets, events, stats]);
+    // 초기 로드
+    fetchTimeseries();
+
+    // 10초마다 업데이트
+    const interval = setInterval(fetchTimeseries, 10000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -140,6 +192,30 @@ export default function Dashboard() {
   const handleEventClick = useCallback((event: Event) => {
     setSelectedEvent(event);
   }, []);
+
+  const convertEventToEventDetail = useCallback(
+    (event: Event): EventDetailType => {
+      return {
+        id: event.id,
+        timestamp: event.timestamp,
+        user: event.user,
+        host: event.host || "",
+        os: event.os || "",
+        event: event.event,
+        label: event.label,
+        duration: event.duration,
+        details: {
+          process_id: "",
+          parent_process_id: "",
+          command_line: "",
+          image_path: "",
+          sigma_rule: "",
+          error_details: "",
+        },
+      };
+    },
+    []
+  );
 
   // 실제 위젯 데이터로부터 레이아웃 생성 (메모이제이션)
   const currentLayout = useMemo(() => {
@@ -216,223 +292,26 @@ export default function Dashboard() {
     return commands[type] || "데이터 처리 중...";
   }, []);
 
-  // 각 위젯을 개별적으로 메모이제이션
   const statsWidget = useMemo(
-    () =>
-      loading ? (
-        <div className="flex items-center justify-center h-full">
-          <div className="text-green-400 font-mono text-sm animate-pulse">
-            시스템 정보를 불러오는 중...
+    () => (
+      <div className="grid grid-cols-2 gap-4 h-full">
+        <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+          <div className="text-slate-400 text-xs mb-2">전체 활동</div>
+          <div className="text-3xl font-bold text-blue-400 mb-1">
+            {stats.totalEvents}
           </div>
+          <div className="text-slate-500 text-xs">오류 발생인 도는 쌀을 수</div>
         </div>
-      ) : error ? (
-        <div className="flex items-center justify-center h-full">
-          <div className="text-red-400 font-mono text-sm">오류: {error}</div>
+        <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+          <div className="text-slate-400 text-xs mb-2">주요 수</div>
+          <div className="text-3xl font-bold text-red-400 mb-1">
+            {stats.anomalies}
+          </div>
+          <div className="text-slate-500 text-xs">위험도 높음</div>
         </div>
-      ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Total Events */}
-          <div className="bg-slate-800/30 rounded border border-slate-700/50 p-4 hover:bg-slate-800/50 transition-all">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-8 h-8 bg-blue-500/20 rounded border border-blue-500/30 flex items-center justify-center">
-                <svg
-                  className="w-4 h-4 text-blue-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
-                  />
-                </svg>
-              </div>
-              <div className="flex-1">
-                <div className="text-slate-400 text-xs font-mono uppercase tracking-wide">
-                  전체 활동
-                </div>
-                <div className="text-blue-400 text-xl font-mono font-bold">
-                  {stats.totalEvents}
-                </div>
-                <div className="text-slate-500 text-xs mt-1">
-                  오늘 발생한 모든 활동 수
-                </div>
-              </div>
-            </div>
-            <div className="w-full h-1 bg-slate-700 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-blue-500 rounded-full animate-pulse"
-                style={{ width: "100%" }}
-              ></div>
-            </div>
-          </div>
-
-          {/* Anomalies */}
-          <div className="bg-slate-800/30 rounded border border-slate-700/50 p-4 hover:bg-slate-800/50 transition-all">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-8 h-8 bg-red-500/20 rounded border border-red-500/30 flex items-center justify-center">
-                <svg
-                  className="w-4 h-4 text-red-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg>
-              </div>
-              <div className="flex-1">
-                <div className="text-slate-400 text-xs font-mono uppercase tracking-wide">
-                  의심스러운 활동
-                </div>
-                <div className="text-red-400 text-xl font-mono font-bold">
-                  {stats.anomalies}
-                </div>
-                <div className="text-slate-500 text-xs mt-1">
-                  주의가 필요한 활동 수
-                </div>
-              </div>
-            </div>
-            <div className="w-full h-1 bg-slate-700 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-red-500 rounded-full animate-pulse"
-                style={{
-                  width: `${Math.min(
-                    100,
-                    (stats.anomalies / stats.totalEvents) * 100
-                  )}%`,
-                }}
-              ></div>
-            </div>
-          </div>
-
-          {/* Risk Ratio */}
-          <div className="bg-slate-800/30 rounded border border-slate-700/50 p-4 hover:bg-slate-800/50 transition-all">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-8 h-8 bg-yellow-500/20 rounded border border-yellow-500/30 flex items-center justify-center">
-                <svg
-                  className="w-4 h-4 text-yellow-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                  />
-                </svg>
-              </div>
-              <div className="flex-1">
-                <div className="text-slate-400 text-xs font-mono uppercase tracking-wide">
-                  위험도 비율
-                </div>
-                <div className="text-yellow-400 text-xl font-mono font-bold">
-                  {stats.totalEvents > 0
-                    ? ((stats.anomalies / stats.totalEvents) * 100).toFixed(1)
-                    : 0}
-                  %
-                </div>
-                <div className="text-slate-500 text-xs mt-1">
-                  위험한 활동의 비율
-                </div>
-              </div>
-            </div>
-            <div className="w-full h-1 bg-slate-700 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-yellow-500 rounded-full animate-pulse"
-                style={{
-                  width: `${
-                    stats.totalEvents > 0
-                      ? (stats.anomalies / stats.totalEvents) * 100
-                      : 0
-                  }%`,
-                }}
-              ></div>
-            </div>
-          </div>
-
-          {/* Threat Level */}
-          <div className="bg-slate-800/30 rounded border border-slate-700/50 p-4 hover:bg-slate-800/50 transition-all">
-            <div className="flex items-center gap-3 mb-2">
-              <div
-                className={`w-8 h-8 ${
-                  threatData.threatLevel === "HIGH"
-                    ? "bg-red-500/20 border-red-500/30"
-                    : threatData.threatLevel === "MEDIUM"
-                    ? "bg-yellow-500/20 border-yellow-500/30"
-                    : "bg-green-500/20 border-green-500/30"
-                } rounded border flex items-center justify-center`}
-              >
-                <svg
-                  className={`w-4 h-4 ${
-                    threatData.threatLevel === "HIGH"
-                      ? "text-red-400"
-                      : threatData.threatLevel === "MEDIUM"
-                      ? "text-yellow-400"
-                      : "text-green-400"
-                  }`}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M13 10V3L4 14h7v7l9-11h-7z"
-                  />
-                </svg>
-              </div>
-              <div className="flex-1">
-                <div className="text-slate-400 text-xs font-mono uppercase tracking-wide">
-                  보안 상태
-                </div>
-                <div
-                  className={`text-xl font-mono font-bold ${threatData.threatColor}`}
-                >
-                  {threatData.threatLevel === "HIGH"
-                    ? "위험"
-                    : threatData.threatLevel === "MEDIUM"
-                    ? "주의"
-                    : "안전"}
-                </div>
-                <div className="text-slate-500 text-xs mt-1">
-                  현재 시스템 보안 상태
-                </div>
-              </div>
-            </div>
-            <div className="w-full h-1 bg-slate-700 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full animate-pulse ${
-                  threatData.threatLevel === "HIGH"
-                    ? "bg-red-500"
-                    : threatData.threatLevel === "MEDIUM"
-                    ? "bg-yellow-500"
-                    : "bg-green-500"
-                }`}
-                style={{
-                  width: `${
-                    threatData.threatLevel === "HIGH"
-                      ? 100
-                      : threatData.threatLevel === "MEDIUM"
-                      ? 60
-                      : 30
-                  }%`,
-                }}
-              ></div>
-            </div>
-          </div>
-        </div>
-      ),
-    [loading, error, stats, threatData]
+      </div>
+    ),
+    [stats]
   );
 
   const eventTableWidget = useMemo(
@@ -449,7 +328,7 @@ export default function Dashboard() {
         </div>
       ) : (
         <EventTable
-          events={alarms.map((alarm, index) => ({
+          events={infiniteAlarms.map((alarm, index) => ({
             id: index,
             traceID: alarm.trace_id,
             operationName: alarm.summary,
@@ -469,9 +348,12 @@ export default function Dashboard() {
             event: alarm.summary,
           }))}
           onEventSelect={handleEventClick}
+          onLoadMore={loadMoreAlarms}
+          hasMore={hasMore}
+          isLoading={infiniteLoading}
         />
       ),
-    [loading, error, alarms, handleEventClick]
+    [loading, error, infiniteAlarms, handleEventClick, hasMore, infiniteLoading]
   );
 
   const eventDetailWidget = useMemo(
@@ -501,7 +383,7 @@ export default function Dashboard() {
           return (
             <WidgetWrapper
               title="시스템 현황"
-              onRemove={() => console.log("Remove widget:", widget.id)}
+              onRemove={() => {}}
               widgetType="stats"
             >
               {statsWidget}
@@ -511,7 +393,7 @@ export default function Dashboard() {
           return (
             <WidgetWrapper
               title="시간별 추이"
-              onRemove={() => console.log("Remove widget:", widget.id)}
+              onRemove={() => {}}
               widgetType="timeseries"
             >
               <TimeSeriesChart data={timeseriesData} />
@@ -521,7 +403,7 @@ export default function Dashboard() {
           return (
             <WidgetWrapper
               title="위험 요소 분석"
-              onRemove={() => console.log("Remove widget:", widget.id)}
+              onRemove={() => {}}
               widgetType="donutchart"
             >
               <DonutChart />
@@ -531,7 +413,7 @@ export default function Dashboard() {
           return (
             <WidgetWrapper
               title="분류별 현황"
-              onRemove={() => console.log("Remove widget:", widget.id)}
+              onRemove={() => {}}
               widgetType="barchart"
             >
               <BarChart />
@@ -541,7 +423,7 @@ export default function Dashboard() {
           return (
             <WidgetWrapper
               title="상관관계 분석"
-              onRemove={() => console.log("Remove widget:", widget.id)}
+              onRemove={() => {}}
               widgetType="heatmap"
             >
               <HeatMap />
@@ -551,7 +433,7 @@ export default function Dashboard() {
           return (
             <WidgetWrapper
               title="보안 이벤트 목록"
-              onRemove={() => console.log("Remove widget:", widget.id)}
+              onRemove={() => {}}
               widgetType="eventtable"
             >
               {eventTableWidget}
@@ -561,7 +443,7 @@ export default function Dashboard() {
           return (
             <WidgetWrapper
               title="이벤트 상세정보"
-              onRemove={() => console.log("Remove widget:", widget.id)}
+              onRemove={() => {}}
               widgetType="eventdetail"
             >
               {eventDetailWidget}

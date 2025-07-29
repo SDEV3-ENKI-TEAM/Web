@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  // Trace 기반 시계열 데이터 사용
   const backendUrl = "http://localhost:8003/api/trace-timeseries";
   try {
     const response = await fetch(backendUrl);

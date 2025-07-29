@@ -199,6 +199,7 @@ export default function Sidebar() {
                 alt="Project Logo"
                 width={32}
                 height={32}
+                style={{ width: "auto", height: "auto" }}
                 className="object-contain"
               />
             </div>

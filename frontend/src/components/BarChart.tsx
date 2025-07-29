@@ -32,7 +32,6 @@ export default function BarChart({
   title = "사용자별 이벤트 분포",
   color = "#4a5568",
 }: BarChartProps) {
-  // Mock data for demonstration
   const mockData = [
     { user: "Joe Fam", anomalyCount: 2, normalCount: 0 },
     { user: "JuserB", anomalyCount: 0, normalCount: 2 },

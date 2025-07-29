@@ -15,9 +15,7 @@ export default function Header({ onLogout, onOpenSettings }: HeaderProps) {
   const { currentUser } = useAuth();
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
 
-  // Real-time clock - 클라이언트에서만 실행
   React.useEffect(() => {
-    // 초기 시간 설정
     setCurrentTime(new Date());
 
     const interval = setInterval(() => {

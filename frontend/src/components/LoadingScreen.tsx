@@ -48,7 +48,6 @@ export default function LoadingScreen({
     };
   }, []);
 
-  // Minimal loading screen for page transitions
   if (minimal) {
     return (
       <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-sm flex items-center justify-center z-50">

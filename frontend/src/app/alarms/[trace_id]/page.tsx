@@ -70,7 +70,6 @@ function AlarmDetailContent() {
 
   const nodeDetail = useMemo(() => {
     if (!selectedNode || !trace) return null;
-    // 노드 클릭 시 event 전체를 data로 넘겼으므로 바로 참조
     const event = selectedNode.data?.event;
     if (!event) return null;
     const tag = event.tag || {};
@@ -122,56 +121,32 @@ function AlarmDetailContent() {
       setEdges([]);
       return;
     }
-    const sysmonEventTypes = [
-      "process_create",
-      "file_creation_time_changed",
-      "network_connection",
-      "sysmon_service_state_changed",
-      "process_terminated",
-      "driver_loaded",
-      "image_loaded",
-      "create_remote_thread",
-      "raw_access_read",
-      "process_access",
-      "file_create",
-      "registry_event_create_key",
-      "registry_event_delete_key",
-      "registry_event_set_value",
-      "registry_event_delete_value",
-      "config_change",
-      "pipe_event_pipe_created",
-      "pipe_event_pipe_connected",
-      "wmievent_filter_activity",
-      "wmievent_consumer_activity",
-      "wmievent_consumer_to_filter",
-      "dns_query",
-      "file_delete_detected",
-      "clipboard_change",
-      "process_tampering",
-      "file_delete_archived",
-    ];
-    const sysmonEventIds = Array.from({ length: 26 }, (_, i) =>
-      (i + 1).toString()
-    );
+
     const filteredEvents = trace.events.filter((event, index, arr) => {
-      const tag = event.tag || {};
-      const eventIdStr =
-        tag.ID || (tag["sysmon@event_id"] && tag["sysmon@event_id"].toString());
-      const isSysmonId = sysmonEventIds.includes(eventIdStr);
+      const source = event._source || event;
+      const tag = source.tag || {};
+
+      const eventId = tag.ID;
+      const isSysmonId = eventId && eventId >= 1 && eventId <= 26;
+
       let eventType = "";
       if (tag.EventName) {
         eventType = tag.EventName.split("(")[0]
           .trim()
           .toLowerCase()
           .replace(/ /g, "_");
-      } else if (tag.TaskName) {
-        eventType = tag.TaskName.split("(")[0]
-          .trim()
-          .toLowerCase()
-          .replace(/ /g, "_");
       }
-      const isSysmonType = sysmonEventTypes.includes(eventType);
-      if (!isSysmonType && !isSysmonId) return false;
+
+      const isValidEvent =
+        isSysmonId ||
+        eventType.includes("process") ||
+        eventType.includes("file") ||
+        eventType.includes("network") ||
+        eventType.includes("registry") ||
+        eventType.includes("driver");
+
+      if (!isValidEvent) return false;
+
       const duplicateIndex = arr.findIndex(
         (e) => JSON.stringify(e) === JSON.stringify(event)
       );
@@ -196,25 +171,20 @@ function AlarmDetailContent() {
       };
     };
     const newNodes = filteredEvents.map((event, idx) => {
-      const tag = event.tag || {};
+      const source = event._source || event;
+      const tag = source.tag || {};
+
       let eventType = "";
       if (tag.EventName) {
         eventType = tag.EventName.split("(")[0]
           .replace(/[^a-zA-Z]/g, "")
           .toLowerCase();
-      } else if (tag.TaskName) {
-        eventType = tag.TaskName.split("(")[0]
-          .replace(/[^a-zA-Z]/g, "")
-          .toLowerCase();
       } else {
         eventType = "unknownevent";
       }
+
       let processName =
-        tag.ProcessName ||
-        tag.Image ||
-        tag.EventName ||
-        tag.TaskName ||
-        "알 수 없는 활동";
+        tag.ProcessName || tag.Image || tag.EventName || "알 수 없는 활동";
       if (typeof processName === "string" && processName.includes(".exe")) {
         const match = processName.match(/([^\\/]+\.exe)/i);
         if (match) processName = match[1];
@@ -224,6 +194,7 @@ function AlarmDetailContent() {
         processcreate: "프로세스 생성",
         processterminated: "프로세스 종료",
         networkconnection: "네트워크 연결",
+        networkconnectiondetected: "네트워크 연결 감지",
         filecreatetimechanged: "파일 생성 시간 변경",
         sysmonservicestatechanged: "Sysmon 서비스 상태 변경",
         driverloaded: "드라이버 로드",
@@ -232,6 +203,7 @@ function AlarmDetailContent() {
         rawaccessread: "로우 디스크 접근",
         processaccess: "프로세스 접근",
         filecreate: "파일 생성",
+        filecreated: "파일 생성",
         registryeventcreatekey: "레지스트리 키 생성",
         registryeventdeletekey: "레지스트리 키 삭제",
         registryeventsetvalue: "레지스트리 값 설정",
@@ -249,6 +221,170 @@ function AlarmDetailContent() {
         processtampering: "프로세스 이미지 변조",
         filedeletearchived: "파일 삭제 후 아카이빙",
         unknownevent: "알 수 없는 이벤트",
+        process_creation: "프로세스 생성",
+        process_terminated: "프로세스 종료",
+        network_connection: "네트워크 연결",
+        file_creation_time_changed: "파일 생성 시간 변경",
+        sysmon_service_state_changed: "Sysmon 서비스 상태 변경",
+        driver_loaded: "드라이버 로드",
+        image_loaded: "이미지(모듈/DLL) 로드",
+        create_remote_thread: "원격 스레드 생성 시도",
+        raw_access_read: "로우 디스크 접근",
+        process_access: "프로세스 접근",
+        registry_event_create_key: "레지스트리 키 생성",
+        registry_event_delete_key: "레지스트리 키 삭제",
+        registry_event_set_value: "레지스트리 값 설정",
+        registry_event_delete_value: "레지스트리 값 삭제",
+        config_change: "Sysmon 설정 변경",
+        pipe_event_pipe_created: "Named pipe 생성",
+        pipe_event_pipe_connected: "Named pipe 연결",
+        wmievent_filter_activity: "WMI EventFilter 활동 감지",
+        wmievent_consumer_activity: "WMI EventConsumer 활동 감지",
+        wmievent_consumer_to_filter: "WMI EventConsumer-Filter 연결",
+        dns_query: "DNS 쿼리 감지",
+        file_delete_detected: "파일 삭제 감지",
+        clipboard_change: "클립보드 내용 변경",
+        process_tampering: "프로세스 이미지 변조",
+        file_delete_archived: "파일 삭제 후 아카이빙",
+        registry_modification: "레지스트리 수정",
+        privilege_escalation: "권한 상승",
+        data_exfiltration: "데이터 유출",
+        suspicious_activity: "의심스러운 활동",
+        security_event: "보안 이벤트",
+        system_event: "시스템 이벤트",
+        application_event: "애플리케이션 이벤트",
+        service_event: "서비스 이벤트",
+        login_event: "로그인 이벤트",
+        logout_event: "로그아웃 이벤트",
+        authentication_event: "인증 이벤트",
+        authorization_event: "권한 이벤트",
+        access_denied: "접근 거부",
+        access_granted: "접근 허용",
+        file_access: "파일 접근",
+        directory_access: "디렉토리 접근",
+        network_access: "네트워크 접근",
+        memory_access: "메모리 접근",
+        registry_access: "레지스트리 접근",
+        process_creation_detected: "프로세스 생성 감지",
+        process_termination_detected: "프로세스 종료 감지",
+        file_creation_detected: "파일 생성 감지",
+        file_deletion_detected: "파일 삭제 감지",
+        network_connection_detected: "네트워크 연결 감지",
+        registry_modification_detected: "레지스트리 수정 감지",
+        suspicious_process_creation: "의심스러운 프로세스 생성",
+        suspicious_file_creation: "의심스러운 파일 생성",
+        suspicious_network_connection: "의심스러운 네트워크 연결",
+        malware_detection: "악성코드 감지",
+        intrusion_detection: "침입 감지",
+        anomaly_detection: "이상 징후 감지",
+        threat_detection: "위협 감지",
+        security_alert: "보안 경고",
+        system_alert: "시스템 경고",
+        network_alert: "네트워크 경고",
+        file_alert: "파일 경고",
+        process_alert: "프로세스 경고",
+        registry_alert: "레지스트리 경고",
+        user_alert: "사용자 경고",
+        authentication_alert: "인증 경고",
+        authorization_alert: "권한 경고",
+        access_alert: "접근 경고",
+        security_violation: "보안 위반",
+        policy_violation: "정책 위반",
+        compliance_violation: "규정 준수 위반",
+        data_breach: "데이터 유출",
+        data_leak: "데이터 누출",
+        data_theft: "데이터 도난",
+        unauthorized_access: "무단 접근",
+        unauthorized_modification: "무단 수정",
+        unauthorized_deletion: "무단 삭제",
+        unauthorized_creation: "무단 생성",
+        unauthorized_execution: "무단 실행",
+        unauthorized_network_activity: "무단 네트워크 활동",
+        unauthorized_file_activity: "무단 파일 활동",
+        unauthorized_registry_activity: "무단 레지스트리 활동",
+        unauthorized_process_activity: "무단 프로세스 활동",
+        unauthorized_user_activity: "무단 사용자 활동",
+        unauthorized_system_activity: "무단 시스템 활동",
+        unauthorized_application_activity: "무단 애플리케이션 활동",
+        unauthorized_service_activity: "무단 서비스 활동",
+        unauthorized_driver_activity: "무단 드라이버 활동",
+        unauthorized_dll_activity: "무단 DLL 활동",
+        unauthorized_api_activity: "무단 API 활동",
+        unauthorized_script_activity: "무단 스크립트 활동",
+        unauthorized_command_activity: "무단 명령어 활동",
+        unauthorized_powerShell_activity: "무단 PowerShell 활동",
+        unauthorized_cmd_activity: "무단 CMD 활동",
+        unauthorized_batch_activity: "무단 배치 활동",
+        unauthorized_scheduled_task_activity: "무단 예약 작업 활동",
+        unauthorized_wmi_activity: "무단 WMI 활동",
+        unauthorized_remote_activity: "무단 원격 활동",
+        unauthorized_lateral_movement: "무단 측면 이동",
+        unauthorized_persistence: "무단 지속성",
+        unauthorized_privilege_escalation: "무단 권한 상승",
+        unauthorized_data_exfiltration: "무단 데이터 유출",
+        unauthorized_command_execution: "무단 명령어 실행",
+        unauthorized_script_execution: "무단 스크립트 실행",
+        unauthorized_powerShell_execution: "무단 PowerShell 실행",
+        unauthorized_cmd_execution: "무단 CMD 실행",
+        unauthorized_batch_execution: "무단 배치 실행",
+        unauthorized_scheduled_task_execution: "무단 예약 작업 실행",
+        unauthorized_wmi_execution: "무단 WMI 실행",
+        unauthorized_remote_execution: "무단 원격 실행",
+        unauthorized_lateral_execution: "무단 측면 실행",
+        unauthorized_persistence_execution: "무단 지속성 실행",
+        unauthorized_privilege_escalation_execution: "무단 권한 상승 실행",
+        unauthorized_data_exfiltration_execution: "무단 데이터 유출 실행",
+        unknown_event: "알 수 없는 이벤트",
+        unknown_activity: "알 수 없는 활동",
+        unknown_process: "알 수 없는 프로세스",
+        unknown_file: "알 수 없는 파일",
+        unknown_network: "알 수 없는 네트워크",
+        unknown_registry: "알 수 없는 레지스트리",
+        unknown_user: "알 수 없는 사용자",
+        unknown_system: "알 수 없는 시스템",
+        unknown_application: "알 수 없는 애플리케이션",
+        unknown_service: "알 수 없는 서비스",
+        unknown_driver: "알 수 없는 드라이버",
+        unknown_dll: "알 수 없는 DLL",
+        unknown_api: "알 수 없는 API",
+        unknown_script: "알 수 없는 스크립트",
+        unknown_command: "알 수 없는 명령어",
+        unknown_powerShell: "알 수 없는 PowerShell",
+        unknown_cmd: "알 수 없는 CMD",
+        unknown_batch: "알 수 없는 배치",
+        unknown_scheduled_task: "알 수 없는 예약 작업",
+        unknown_wmi: "알 수 없는 WMI",
+        unknown_remote: "알 수 없는 원격",
+        unknown_lateral: "알 수 없는 측면",
+        unknown_persistence: "알 수 없는 지속성",
+        unknown_privilege_escalation: "알 수 없는 권한 상승",
+        unknown_data_exfiltration: "알 수 없는 데이터 유출",
+        unknown_execution: "알 수 없는 실행",
+        unknown_activity_detected: "알 수 없는 활동 감지",
+        unknown_process_detected: "알 수 없는 프로세스 감지",
+        unknown_file_detected: "알 수 없는 파일 감지",
+        unknown_network_detected: "알 수 없는 네트워크 감지",
+        unknown_registry_detected: "알 수 없는 레지스트리 감지",
+        unknown_user_detected: "알 수 없는 사용자 감지",
+        unknown_system_detected: "알 수 없는 시스템 감지",
+        unknown_application_detected: "알 수 없는 애플리케이션 감지",
+        unknown_service_detected: "알 수 없는 서비스 감지",
+        unknown_driver_detected: "알 수 없는 드라이버 감지",
+        unknown_dll_detected: "알 수 없는 DLL 감지",
+        unknown_api_detected: "알 수 없는 API 감지",
+        unknown_script_detected: "알 수 없는 스크립트 감지",
+        unknown_command_detected: "알 수 없는 명령어 감지",
+        unknown_powerShell_detected: "알 수 없는 PowerShell 감지",
+        unknown_cmd_detected: "알 수 없는 CMD 감지",
+        unknown_batch_detected: "알 수 없는 배치 감지",
+        unknown_scheduled_task_detected: "알 수 없는 예약 작업 감지",
+        unknown_wmi_detected: "알 수 없는 WMI 감지",
+        unknown_remote_detected: "알 수 없는 원격 감지",
+        unknown_lateral_detected: "알 수 없는 측면 감지",
+        unknown_persistence_detected: "알 수 없는 지속성 감지",
+        unknown_privilege_escalation_detected: "알 수 없는 권한 상승 감지",
+        unknown_data_exfiltration_detected: "알 수 없는 데이터 유출 감지",
+        unknown_execution_detected: "알 수 없는 실행 감지",
       };
       const eventTypeKor = eventTypeMap[eventType] || eventType;
       const finalLabel = `${processName} (${eventTypeKor})`;
@@ -273,7 +409,7 @@ function AlarmDetailContent() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        textAlign: "center",
+        textAlign: "center" as const,
         boxShadow: hasAlert
           ? "0 4px 8px rgba(239, 68, 68, 0.2)"
           : "0 2px 4px rgba(0, 0, 0, 0.1)",
@@ -312,8 +448,20 @@ function AlarmDetailContent() {
     const newEdges = filteredEvents.slice(1).map((_, idx) => {
       const sourceEvent = filteredEvents[idx];
       const targetEvent = filteredEvents[idx + 1];
-      const hasSourceAlert = sourceEvent.has_alert;
-      const hasTargetAlert = targetEvent.has_alert;
+
+      const sourceSource = sourceEvent._source || sourceEvent;
+      const targetSource = targetEvent._source || targetEvent;
+      const sourceTag = sourceSource.tag || {};
+      const targetTag = targetSource.tag || {};
+
+      const hasSourceAlert =
+        sourceTag["sigma@alert"] ||
+        sourceTag.error === true ||
+        sourceTag.error === "true";
+      const hasTargetAlert =
+        targetTag["sigma@alert"] ||
+        targetTag.error === true ||
+        targetTag.error === "true";
       const edgeColor =
         hasSourceAlert || hasTargetAlert ? "#ef4444" : "#3b82f6";
       const edgeWidth = hasSourceAlert || hasTargetAlert ? 3 : 2;
@@ -613,7 +761,7 @@ function AlarmDetailContent() {
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.8, y: 50 }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-slate-900/90 backdrop-blur-md border border-slate-700/50 rounded-xl shadow-2xl p-8 min-w-[500px] max-w-2xl relative font-mono"
+                className="bg-slate-900/90 backdrop-blur-md border border-slate-700/50 rounded-xl shadow-2xl p-8 min-w-[500px] max-w-4xl max-h-[90vh] overflow-y-auto relative font-mono"
               >
                 {/* Terminal Header */}
                 <div className="bg-slate-800/80 px-4 py-2 -mx-8 -mt-8 mb-6 border-b border-slate-700/50 flex items-center gap-2">
@@ -690,10 +838,10 @@ function AlarmDetailContent() {
                   <div className="text-slate-300">{nodeDetail.explanation}</div>
                 </div>
                 {/* 활동유형, 단계, TraceID, 실행시간 */}
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div className="min-w-0">
                     <span className="text-slate-400">활동 유형:</span>
-                    <div className="text-purple-300 font-bold">
+                    <div className="text-purple-300 font-bold break-words text-sm">
                       {(() => {
                         const tag = nodeDetail.event.tag || {};
                         let eventType = "";
@@ -712,23 +860,23 @@ function AlarmDetailContent() {
                       })()}
                     </div>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <span className="text-slate-400">단계 번호:</span>
-                    <div className="text-blue-300">
+                    <div className="text-blue-300 text-sm">
                       {Number(nodeDetail.index) + 1}
                     </div>
                   </div>
-                  <div>
+                  <div className="min-w-0 md:col-span-2">
                     <span className="text-slate-400">Trace ID:</span>
-                    <div className="text-cyan-300 bg-cyan-500/10 p-2 rounded border border-cyan-500/20 mt-1 break-all text-xs font-mono">
+                    <div className="text-cyan-300 bg-cyan-500/10 p-2 rounded border border-cyan-500/20 mt-1 break-all text-sm font-mono">
                       {nodeDetail.event.trace_id ||
                         trace?.trace_id ||
                         "데이터 없음"}
                     </div>
                   </div>
-                  <div>
+                  <div className="min-w-0 md:col-span-2">
                     <span className="text-slate-400">실행 시간:</span>
-                    <div className="text-amber-300 bg-amber-500/10 p-2 rounded border border-amber-500/20 mt-1 text-sm font-mono">
+                    <div className="text-amber-300 bg-amber-500/10 p-2 rounded border border-amber-500/20 mt-1 text-sm font-mono break-words">
                       {nodeDetail.event.tag?.UtcTime ||
                         nodeDetail.event.timestamp ||
                         "시간 정보 없음"}
@@ -736,10 +884,10 @@ function AlarmDetailContent() {
                   </div>
                 </div>
                 {/* 실행 프로그램, 명령어, 부모, 사용자, 경로, 호스트, OS */}
-                <div className="grid grid-cols-2 gap-4 mt-4">
-                  <div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                  <div className="min-w-0">
                     <span className="text-slate-400">실행된 프로그램:</span>
-                    <div className="text-green-300 bg-green-500/10 p-2 rounded border border-green-500/20 mt-1">
+                    <div className="text-green-300 bg-green-500/10 p-2 rounded border border-green-500/20 mt-1 break-words text-sm">
                       {(() => {
                         const tag = nodeDetail.event.tag || {};
                         let processName =
@@ -759,50 +907,54 @@ function AlarmDetailContent() {
                       })()}
                     </div>
                   </div>
-                  <div>
+                  <div className="min-w-0 md:col-span-2">
                     <span className="text-slate-400">명령어:</span>
-                    <div className="text-yellow-300 bg-yellow-500/10 p-2 rounded border border-yellow-500/20 mt-1 break-all text-xs">
+                    <div className="text-yellow-300 bg-yellow-500/10 p-2 rounded border border-yellow-500/20 mt-1 break-all text-sm">
                       {nodeDetail.event.tag?.CommandLine || "-"}
                     </div>
                   </div>
-                  <div>
+                  <div className="min-w-0 md:col-span-2">
                     <span className="text-slate-400">부모 프로세스:</span>
-                    <div className="text-orange-300">
+                    <div className="text-orange-300 break-all text-sm">
                       {nodeDetail.event.tag?.ParentImage || "-"}
                     </div>
                   </div>
-                  <div>
+                  <div className="min-w-0 md:col-span-2">
                     <span className="text-slate-400">부모 명령어:</span>
-                    <div className="text-orange-300">
+                    <div className="text-orange-300 break-all text-sm">
                       {nodeDetail.event.tag?.ParentCommandLine || "-"}
                     </div>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <span className="text-slate-400">사용자:</span>
-                    <div className="text-cyan-300">
+                    <div className="text-cyan-300 break-words text-sm">
                       {nodeDetail.event.tag?.User || "-"}
                     </div>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <span className="text-slate-400">경로:</span>
-                    <div className="text-cyan-300">
+                    <div className="text-cyan-300 break-words text-sm">
                       {nodeDetail.event.tag?.CurrentDirectory || "-"}
                     </div>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <span className="text-slate-400">호스트명:</span>
-                    <div className="text-cyan-300">{nodeDetail.host}</div>
+                    <div className="text-cyan-300 break-words text-sm">
+                      {nodeDetail.host}
+                    </div>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <span className="text-slate-400">운영체제:</span>
-                    <div className="text-cyan-300">{nodeDetail.os}</div>
+                    <div className="text-cyan-300 break-words text-sm">
+                      {nodeDetail.os}
+                    </div>
                   </div>
                 </div>
                 {/* Sigma 룰 */}
                 {nodeDetail.event.tag?.["sigma@alert"] && (
                   <div className="mt-4">
                     <span className="text-slate-400">탐지된 Sigma 룰:</span>
-                    <div className="text-yellow-300 bg-yellow-500/10 p-2 rounded border border-yellow-500/20 text-xs">
+                    <div className="text-yellow-300 bg-yellow-500/10 p-2 rounded border border-yellow-500/20 text-sm break-words">
                       {nodeDetail.event.tag["sigma@alert"]}
                     </div>
                   </div>

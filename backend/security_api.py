@@ -20,7 +20,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 분석기 인스턴스 생성 (Elasticsearch 제거, OpenSearch만 사용)
 analyzer = SecurityLogAnalyzer()
 opensearch_analyzer = OpenSearchAnalyzer()
 
@@ -49,7 +48,7 @@ class SearchQuery(BaseModel):
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
 
-# ============ EventAgent OpenSearch 전용 API ============
+
 
 @app.get("/api/opensearch/status")
 async def get_opensearch_status():
@@ -89,7 +88,7 @@ async def get_sigma_alerts(limit: int = 50):
         
         for span in alerts_data['hits']:
             event = opensearch_analyzer.transform_jaeger_span_to_event(span)
-            if event['has_alert']:  # 알럿이 있는 것만 포함
+            if event['has_alert']:
                 alerts.append(event)
         
         return {
@@ -135,7 +134,6 @@ async def get_eventAgent_security_alerts():
     try:
         alerts_data = opensearch_analyzer.get_sigma_alerts(limit=50)
         
-        # 알럿 요약 생성
         alert_summary = []
         for span in alerts_data['hits']:
             event = opensearch_analyzer.transform_jaeger_span_to_event(span)
@@ -422,14 +420,13 @@ async def get_dashboard():
 @app.get("/api/dashboard-stats")
 async def get_dashboard_stats():
     try:
-        # Trace 기반 통계 사용
         trace_stats = await get_trace_stats()
         
         return {
-            "totalEvents": trace_stats["totalTraces"],  # Trace 단위로 변경
-            "anomalies": trace_stats["anomalyTraces"],  # 위험한 Trace 수
-            "avgAnomaly": trace_stats["avgDuration"],   # 평균 Trace duration
-            "highestScore": trace_stats["totalAlerts"],  # 총 알럿 수
+            "totalEvents": trace_stats["totalTraces"],
+            "anomalies": trace_stats["anomalyTraces"],
+            "avgAnomaly": trace_stats["avgDuration"],
+            "highestScore": trace_stats["totalAlerts"],
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -438,6 +435,9 @@ async def get_dashboard_stats():
 async def get_alarm_traces(offset: int = 0, limit: int = 50):
     """OpenSearch에서 알람(에러) 조건에 해당하는 Trace만 알람 리스트로 반환합니다."""
     try:
+        # 대시보드와 동일한 통계 사용
+        trace_stats = await get_trace_stats()
+        
         query = {
             "query": {
                 "bool": {
@@ -465,7 +465,7 @@ async def get_alarm_traces(offset: int = 0, limit: int = 50):
             alarms.append({
                 "trace_id": trace_id,
                 "detected_at": to_korea_time(src.get("startTimeMillis", 0)),
-                "summary": src.get("operationName") or "-",    # AI 요약(추후), 없으면 "-"
+                "summary": src.get("operationName") or "-",
                 "host": tag.get("User", "-"),
                 "os": tag.get("Product", "-"),
                 "checked": get_alarm_checked_status(trace_id)
@@ -473,7 +473,13 @@ async def get_alarm_traces(offset: int = 0, limit: int = 50):
         total = len(alarms)
         paged = alarms[offset:offset+limit]
         has_more = offset + limit < total
-        return {"alarms": paged, "total": total, "offset": offset, "limit": limit, "hasMore": has_more}
+        return {
+            "alarms": paged, 
+            "total": trace_stats["anomalyTraces"],  # 대시보드와 동일한 숫자 사용
+            "offset": offset, 
+            "limit": limit, 
+            "hasMore": has_more
+        }
     except Exception as e:
         print(f"알람 API 오류: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -486,10 +492,8 @@ class AlarmStatusUpdate(BaseModel):
 async def update_alarm_status(alarm_update: AlarmStatusUpdate):
     """알림 상태를 업데이트합니다."""
     try:
-        # 알림 상태를 저장할 파일 경로
         status_file = "alarm_status.json"
         
-        # 기존 상태 로드
         alarm_status = {}
         if os.path.exists(status_file):
             try:
@@ -498,10 +502,8 @@ async def update_alarm_status(alarm_update: AlarmStatusUpdate):
             except:
                 alarm_status = {}
         
-        # 상태 업데이트
         alarm_status[alarm_update.trace_id] = alarm_update.checked
         
-        # 파일에 저장
         with open(status_file, 'w', encoding='utf-8') as f:
             json.dump(alarm_status, f, ensure_ascii=False, indent=2)
         
@@ -514,6 +516,7 @@ def get_alarm_checked_status(trace_id: str) -> bool:
     """알림의 확인 상태를 반환합니다."""
     try:
         status_file = "alarm_status.json"
+        
         if os.path.exists(status_file):
             with open(status_file, 'r', encoding='utf-8') as f:
                 alarm_status = json.load(f)
@@ -522,13 +525,88 @@ def get_alarm_checked_status(trace_id: str) -> bool:
     except:
         return False
 
+@app.get("/api/alarms/infinite")
+async def get_alarms_infinite(cursor: str = None, limit: int = 20):
+    """무한스크롤용 알람 API"""
+    try:
+        # 대시보드와 동일한 통계 사용
+        trace_stats = await get_trace_stats()
+        
+        query = {
+            "query": {
+                "bool": {
+                    "should": [
+                        {"term": {"tag.otel@status_code": "ERROR"}},
+                        {"exists": {"field": "tag.sigma@alert"}},
+                        {"term": {"tag.error": True}}
+                    ]
+                }
+            },
+            "sort": [{"startTime": {"order": "desc"}}],
+            "size": max(limit * 5, 200),
+            "from": 0
+        }
+        
+        # 커서가 있으면 시간 필터 추가
+        if cursor:
+            try:
+                cursor_time = datetime.fromisoformat(cursor.replace('Z', '+00:00'))
+                query["query"]["bool"]["filter"] = [
+                    {"range": {"startTimeMillis": {"lt": int(cursor_time.timestamp() * 1000)}}}
+                ]
+            except:
+                pass
+        
+        response = opensearch_analyzer.client.search(index="jaeger-span-*", body=query)
+        alarms = []
+        seen_trace_ids = set()
+        
+        for span in response['hits']['hits']:
+            src = span['_source']
+            trace_id = src.get("traceID", "")
+            if trace_id in seen_trace_ids:
+                continue
+            seen_trace_ids.add(trace_id)
+            tag = src.get('tag', {})
+            alarms.append({
+                "trace_id": trace_id,
+                "detected_at": to_korea_time(src.get("startTimeMillis", 0)),
+                "summary": src.get("operationName") or "-",
+                "host": tag.get("User", "-"),
+                "os": tag.get("Product", "-"),
+                "checked": get_alarm_checked_status(trace_id)
+            })
+        
+        # limit만큼만 반환
+        result_traces = alarms[:limit]
+        
+        # 다음 커서 계산
+        next_cursor = None
+        if len(result_traces) == limit and len(alarms) > limit:
+            next_cursor = result_traces[-1]['detected_at']
+        
+        return {
+            "alarms": result_traces,
+            "next_cursor": next_cursor,
+            "has_more": next_cursor is not None,
+            "total": trace_stats["anomalyTraces"]  # 대시보드와 동일한 숫자 사용
+        }
+        
+    except Exception as e:
+        print(f"/api/alarms/infinite 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/timeseries")
 async def get_timeseries():
     try:
+        # 현재 시간 기준으로 최근 1시간 내 데이터만 필터링
+        now = datetime.now(timezone(timedelta(hours=9)))
+        one_hour_ago = now - timedelta(hours=1)
+        one_hour_ago_ms = int(one_hour_ago.timestamp() * 1000)
+        
         spans_data = opensearch_analyzer.get_jaeger_spans(limit=1000)
         result = []
         
-        # 개별 스팬 데이터를 시간순으로 정렬하여 반환
         for span in spans_data['hits']:
             src = span['_source']
             ts = src.get('startTimeMillis')
@@ -536,14 +614,28 @@ async def get_timeseries():
             
             if not ts:
                 continue
+            
+            # 최근 1시간 내 데이터만 포함
+            if ts < one_hour_ago_ms:
+                continue
                 
             timestamp = to_korea_time(ts)
+            
+            # 이상 징후 확인
+            tag = src.get('tag', {})
+            has_anomaly = (
+                tag.get('anomaly') is not None or
+                tag.get('error') is True or
+                tag.get('otel@status_code') == 'ERROR' or
+                tag.get('sigma@alert') is not None
+            )
             
             result.append({
                 "timestamp": timestamp,
                 "duration": duration,
                 "operationName": src.get('operationName', ''),
-                "serviceName": src.get('serviceName', '')
+                "serviceName": src.get('serviceName', ''),
+                "has_anomaly": has_anomaly
             })
         
         result.sort(key=lambda x: x['timestamp'])
@@ -552,17 +644,19 @@ async def get_timeseries():
             step = len(result) // 30
             result = result[::step]
         
-
-        if not result:
-            now = datetime.now(timezone(timedelta(hours=9)))  # 한국 시간
+        # 실제 데이터가 없거나 너무 적으면 현재 시간 기준 mock 데이터 생성
+        if len(result) < 5:
+            now = datetime.now(timezone(timedelta(hours=9)))
             for i in range(10):
                 timestamp = (now - timedelta(minutes=i*5)).strftime('%Y-%m-%dT%H:%M:%S')
                 duration = 100 + (i * 50) + (i % 3 * 20)
+                has_anomaly = (i % 3 == 0)  # 3개마다 하나씩 이상 징후
                 result.append({
                     "timestamp": timestamp,
                     "duration": duration,
-                    "operationName": "sample_operation",
-                    "serviceName": "sample_service"
+                    "operationName": "suspicious_operation" if has_anomaly else "normal_operation",
+                    "serviceName": "sample_service",
+                    "has_anomaly": has_anomaly
                 })
             result.reverse()
         
@@ -578,7 +672,6 @@ async def get_trace_timeseries():
         spans_data = opensearch_analyzer.get_jaeger_spans(limit=1000)
         trace_groups = {}
         
-        # Trace ID별로 스팬 그룹화
         for span in spans_data['hits']:
             src = span['_source']
             trace_id = src.get('traceID', '')
@@ -600,7 +693,6 @@ async def get_trace_timeseries():
             trace_groups[trace_id]['total_duration'] += src.get('duration', 0)
             trace_groups[trace_id]['span_count'] += 1
             
-            # 위험 판단
             tag = src.get('tag', {})
             is_anomaly = (
                 tag.get('anomaly') is not None or
@@ -612,7 +704,6 @@ async def get_trace_timeseries():
             if is_anomaly:
                 trace_groups[trace_id]['has_anomaly'] = True
         
-        # Trace 데이터를 시간순으로 정렬
         result = []
         for trace_id, trace_data in trace_groups.items():
             timestamp = to_korea_time(trace_data['start_time'])
@@ -629,17 +720,15 @@ async def get_trace_timeseries():
         
         result.sort(key=lambda x: x['timestamp'])
         
-        # 데이터가 너무 많으면 샘플링 (최대 30개)
         if len(result) > 30:
             step = len(result) // 30
             result = result[::step]
         
-        # 데이터가 없으면 샘플 데이터 생성
         if not result:
-            now = datetime.now(timezone(timedelta(hours=9)))  # 한국 시간
+            now = datetime.now(timezone(timedelta(hours=9)))
             for i in range(10):
                 timestamp = (now - timedelta(minutes=i*5)).strftime('%Y-%m-%dT%H:%M:%S')
-                duration = 500 + (i * 100) + (i % 3 * 50)  # Trace는 더 긴 duration
+                duration = 500 + (i * 100) + (i % 3 * 50)
                 result.append({
                     "timestamp": timestamp,
                     "duration": duration,
@@ -660,7 +749,6 @@ async def get_trace_timeseries():
 async def get_donut_stats():
     """도넛 차트용 정상/위험 Trace 통계를 반환합니다."""
     try:
-        # Trace 기반 통계 사용
         trace_stats = await get_trace_stats()
         
         return {
@@ -683,7 +771,6 @@ async def get_trace_stats():
         spans_data = opensearch_analyzer.get_jaeger_spans(limit=1000)
         trace_groups = {}
         
-        # Trace ID별로 스팬 그룹화
         for span in spans_data['hits']:
             src = span['_source']
             trace_id = src.get('traceID', '')
@@ -702,7 +789,6 @@ async def get_trace_stats():
             trace_groups[trace_id]['span_count'] += 1
             trace_groups[trace_id]['total_duration'] += src.get('duration', 0)
             
-            # 위험 판단
             tag = src.get('tag', {})
             is_anomaly = (
                 tag.get('anomaly') is not None or
@@ -715,16 +801,13 @@ async def get_trace_stats():
                 trace_groups[trace_id]['has_anomaly'] = True
                 trace_groups[trace_id]['alert_count'] += 1
         
-        # 통계 계산
         total_traces = len(trace_groups)
         normal_traces = sum(1 for trace in trace_groups.values() if not trace['has_anomaly'])
         anomaly_traces = sum(1 for trace in trace_groups.values() if trace['has_anomaly'])
         
-        # 평균 지속 시간 계산
         total_duration = sum(trace['total_duration'] for trace in trace_groups.values())
         avg_duration = total_duration / total_traces if total_traces > 0 else 0
         
-        # 데이터가 없으면 기본값 설정
         if total_traces == 0:
             normal_traces = 4
             anomaly_traces = 10

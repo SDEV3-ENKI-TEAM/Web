@@ -393,7 +393,7 @@ class OpenSearchAnalyzer:
         events = []
         for i, span in enumerate(all_spans):
             source = span['_source']
-            events.append(source)  # 데이터를 events에 추가
+            events.append(source)
         print(f"[DEBUG] 반환되는 이벤트 개수: {len(events)}")
         return events
     
@@ -402,8 +402,7 @@ class OpenSearchAnalyzer:
         try:
             total_query = {"query": {"match_all": {}}}
             total_response = self.client.count(index="jaeger-span-*", body=total_query)
-            
-            # 시그마 알럿 수
+    
             alert_query = {
                 "query": {
                     "bool": {

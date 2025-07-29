@@ -55,7 +55,10 @@ export default function AlarmsPage() {
       })
       .then((data) => {
         setAlarms(
-          (data.alarms || []).map((a: any) => ({ ...a, checked: false }))
+          (data.alarms || []).map((a: any) => ({
+            ...a,
+            checked: a.checked || false,
+          }))
         );
         setTotal(data.total || 0);
         setLoading(false);
@@ -113,11 +116,9 @@ export default function AlarmsPage() {
 
   const handleCheck = async (trace_id: string) => {
     try {
-      // 현재 알림의 상태를 찾아서 토글
       const currentAlarm = alarms.find((alarm) => alarm.trace_id === trace_id);
       const newCheckedStatus = !currentAlarm?.checked;
 
-      // 백엔드에 상태 업데이트 요청
       const response = await fetch("/api/alarms/check", {
         method: "POST",
         headers: {
@@ -132,8 +133,6 @@ export default function AlarmsPage() {
       if (!response.ok) {
         throw new Error("상태 업데이트 실패");
       }
-
-      // 로컬 상태 업데이트
       setAlarms((prev) =>
         prev.map((alarm) =>
           alarm.trace_id === trace_id

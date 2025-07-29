@@ -12,10 +12,6 @@ if __name__ == "__main__":
         analyzer = OpenSearchAnalyzer()
         status = analyzer.check_jaeger_indices()
         
-        if status['status'] == 'success':
-            print(f"OpenSearch 연결 성공! {status['total_documents']:,}개 문서 발견")
-        else:
-            print(f"OpenSearch 연결 경고: {status['message']}")
     except Exception as e:
         print(f"OpenSearch 연결 실패: {e}")
     
@@ -24,7 +20,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "security_api:app",
         host="127.0.0.1", 
-        port=8003,  # 포트 8003으로 변경
+        port=8003,
         reload=True,
         log_level="info"
     ) 

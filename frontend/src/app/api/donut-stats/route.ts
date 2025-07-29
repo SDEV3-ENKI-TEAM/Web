@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  // 도넛 차트용 정상/위험 이벤트 통계 데이터
   const backendUrl = "http://localhost:8003/api/donut-stats";
   try {
     const response = await fetch(backendUrl);
@@ -10,7 +9,6 @@ export async function GET(request: Request) {
     return NextResponse.json(data);
   } catch (error) {
     console.error("/api/donut-stats 백엔드 연동 실패:", error);
-    // 기본값 반환
     return NextResponse.json({
       normalCount: 4,
       anomalyCount: 10,

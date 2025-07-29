@@ -13,7 +13,10 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 
-// Trace 데이터 타입을 정의합니다.
+// React Flow 타입 정의 (성능 최적화)
+const nodeTypes = {};
+const edgeTypes = {};
+
 interface Trace {
   trace_id: string;
   timestamp: string;
@@ -24,7 +27,6 @@ interface Trace {
   prompt_input: string;
 }
 
-// 공격 단계 설명 데이터
 const attackStageExplanations = [
   {
     stage: "초기 침입",
@@ -58,7 +60,6 @@ const attackStageExplanations = [
   },
 ];
 
-// 이벤트 타입별 설명
 const eventTypeExplanations: { [key: string]: string } = {
   process_creation: "프로그램 실행 - 새로운 프로그램이 시작되었습니다",
   network_connection: "네트워크 연결 - 인터넷이나 다른 컴퓨터와 통신합니다",
@@ -68,7 +69,6 @@ const eventTypeExplanations: { [key: string]: string } = {
   data_exfiltration: "데이터 유출 - 중요한 정보를 외부로 전송합니다",
 };
 
-// 프로세스 표시 이름 생성 함수
 function getProcessDisplayName(event: any): string {
   console.log("🔍 프로세스 이름 추출:", {
     process_name: event.process_name,
@@ -76,17 +76,13 @@ function getProcessDisplayName(event: any): string {
     operation_name: event.operation_name,
   });
 
-  // 프로세스 이름이 있고 유효한 경우 (빈 문자열도 체크)
   if (
     event.process_name &&
     event.process_name !== "unknown" &&
     event.process_name.trim() !== ""
   ) {
-    // 프로세스 이름이 이미 한국어 설명인 경우 그대로 반환
     return event.process_name;
   }
-
-  // 프로세스 이름이 없는 경우 한국어 이벤트 타입 설명 사용
   const koreanEventTypes: { [key: string]: string } = {
     process_creation: "프로그램 실행",
     network_connection: "네트워크 연결",
@@ -114,26 +110,20 @@ function EventsPageContent() {
   const [showGuide, setShowGuide] = useState(false);
   const [activeTab, setActiveTab] = useState<"report" | "response">("report");
 
-  // "더 보기" 기능을 위한 상태
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  // Trace ID 검색을 위한 debounce ref
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // React Flow 이벤트 핸들러 메모이제이션
   const onNodeClick = useCallback((_: any, node: any) => {
     setSelectedNode(node);
   }, []);
 
-  // React Flow 기본 뷰포트 설정
-
   const defaultViewport = useMemo(
     () => ({
-      x: 300, // 전체 플로우차트가 화면 중앙에 오도록 x 위치 조정
+      x: 300,
       y: 100,
-      zoom: 1.2, // 줌을 조금 작게 조정
+      zoom: 1.2,
     }),
     []
   );
@@ -1050,6 +1040,8 @@ function EventsPageContent() {
                   zoomOnPinch
                   zoomOnDoubleClick
                   style={{ backgroundColor: "transparent" }}
+                  nodeTypes={nodeTypes}
+                  edgeTypes={edgeTypes}
                 />
                 {nodes.length > 0 && (
                   <div className="absolute top-4 right-4 bg-slate-800/80 backdrop-blur-md border border-slate-700/50 rounded-lg p-3 text-xs">

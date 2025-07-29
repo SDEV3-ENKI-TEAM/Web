@@ -12,7 +12,6 @@ export default function HeatMap({
   title = "시간대별 활동 패턴",
   data,
 }: HeatMapProps) {
-  // Mock data for demonstration - 24 hours x 7 days
   const mockData = Array.from({ length: 7 }, (_, day) =>
     Array.from({ length: 24 }, (_, hour) => ({
       hour,

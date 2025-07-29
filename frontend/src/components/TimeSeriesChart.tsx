@@ -45,33 +45,32 @@ export default function TimeSeriesChart({
   title = "Trace Duration 시계열",
   color = "#60a5fa",
 }: TimeSeriesChartProps) {
-  // 예시/mock 데이터 (없을 때)
-  const mockData = [
-    {
-      timestamp: "2024-07-24T18:06:40",
-      duration: 800,
-      has_anomaly: false,
-      trace_id: "sample_trace_1",
-      span_count: 3,
-      operation_name: "sample_operation",
-    },
-    {
-      timestamp: "2024-07-24T18:15:00",
-      duration: 200,
-      has_anomaly: true,
-      trace_id: "sample_trace_2",
-      span_count: 5,
-      operation_name: "error_operation",
-    },
-    {
-      timestamp: "2024-07-24T18:20:00",
-      duration: 600,
-      has_anomaly: false,
-      trace_id: "sample_trace_3",
-      span_count: 2,
-      operation_name: "normal_operation",
-    },
-  ];
+  // 현재 시간을 기준으로 한 실시간 mock 데이터 생성
+  const generateMockData = () => {
+    const now = new Date();
+    const mockData = [];
+
+    for (let i = 9; i >= 0; i--) {
+      const timestamp = new Date(now.getTime() - i * 5 * 60 * 1000); // 5분 간격
+      const duration = 100 + Math.random() * 500 + (i % 3) * 50;
+      const has_anomaly = Math.random() > 0.7; // 30% 확률로 이상 징후
+
+      mockData.push({
+        timestamp: timestamp.toISOString(),
+        duration: Math.round(duration),
+        has_anomaly,
+        trace_id: `mock_trace_${i}`,
+        span_count: Math.floor(Math.random() * 10) + 1,
+        operation_name: has_anomaly
+          ? "suspicious_operation"
+          : "normal_operation",
+      });
+    }
+
+    return mockData;
+  };
+
+  const mockData = generateMockData();
 
   const chartData = data && data.length > 0 ? data : mockData;
 
@@ -87,7 +86,6 @@ export default function TimeSeriesChart({
 
   const dataset = chartData.map((item) => item.duration);
 
-  // 에러가 있는 데이터 포인트를 빨간색으로 표시
   const pointBackgroundColors = chartData.map((item) =>
     item.has_anomaly ? "#ef4444" : color
   );
@@ -104,7 +102,7 @@ export default function TimeSeriesChart({
         data: dataset,
         borderColor: color,
         backgroundColor: `${color}20`,
-        pointRadius: chartData.map((item) => (item.has_anomaly ? 6 : 4)), // 에러 포인트는 더 크게
+        pointRadius: chartData.map((item) => (item.has_anomaly ? 6 : 4)),
         pointBackgroundColor: pointBackgroundColors,
         pointBorderColor: pointBorderColors,
         pointBorderWidth: 2,

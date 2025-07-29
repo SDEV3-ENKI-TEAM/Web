@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 export async function GET() {
-  // 외부 백엔드 API 주소
   const backendUrl = "http://localhost:8003/api/dashboard-stats";
 
   try {

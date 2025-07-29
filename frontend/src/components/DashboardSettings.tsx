@@ -35,7 +35,6 @@ export default function DashboardSettings({
   const handleAddWidget = (type: string) => {
     const widgetType = availableTypes.find((t) => t.type === type);
     if (widgetType) {
-      // Find a good position for the new widget
       const maxY = Math.max(
         ...widgets.map((w) => w.position.y + w.position.h),
         0

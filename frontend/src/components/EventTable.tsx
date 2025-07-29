@@ -1,15 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Event } from "@/types/event";
 
 interface EventTableProps {
   events: Event[];
   onEventSelect: (event: Event) => void;
+  onLoadMore?: () => void;
+  hasMore?: boolean;
+  isLoading?: boolean;
 }
 
-export default function EventTable({ events, onEventSelect }: EventTableProps) {
+export default function EventTable({
+  events,
+  onEventSelect,
+  onLoadMore,
+  hasMore = false,
+  isLoading = false,
+}: EventTableProps) {
   const [sortField, setSortField] = useState<keyof Event>("timestamp");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
@@ -41,6 +50,22 @@ export default function EventTable({ events, onEventSelect }: EventTableProps) {
     onEventSelect(event);
   };
 
+  // 무한스크롤 핸들러
+  const handleScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+      if (
+        scrollHeight - scrollTop <= clientHeight * 1.5 &&
+        hasMore &&
+        !isLoading &&
+        onLoadMore
+      ) {
+        onLoadMore();
+      }
+    },
+    [hasMore, isLoading, onLoadMore]
+  );
+
   const sortedEvents = [...events].sort((a, b) => {
     if (a[sortField] < b[sortField]) return sortDirection === "asc" ? -1 : 1;
     if (a[sortField] > b[sortField]) return sortDirection === "asc" ? 1 : -1;
@@ -60,13 +85,6 @@ export default function EventTable({ events, onEventSelect }: EventTableProps) {
 
   return (
     <div className="h-full flex flex-col bg-slate-900/30 font-mono border border-slate-700/50 rounded-lg overflow-hidden">
-      {/* Terminal Output Header */}
-      <div className="bg-slate-800/50 border-b border-slate-700/50 p-2">
-        <div className="text-xs text-slate-400">
-          총 {events.length}개의 이벤트 발견 | 실시간 모니터링 중...
-        </div>
-      </div>
-
       {/* Table Header */}
       <div className="bg-slate-800/30 border-b border-slate-700/50 sticky top-0 z-10 no-drag">
         <div className="grid grid-cols-12 gap-2 py-2 px-3 text-xs font-semibold text-slate-300 uppercase tracking-wide">
@@ -117,7 +135,10 @@ export default function EventTable({ events, onEventSelect }: EventTableProps) {
       </div>
 
       {/* Table Body */}
-      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+      <div
+        className="flex-1 min-h-0 overflow-y-auto custom-scrollbar"
+        onScroll={handleScroll}
+      >
         {sortedEvents.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
@@ -204,22 +225,26 @@ export default function EventTable({ events, onEventSelect }: EventTableProps) {
                 </div>
               </motion.div>
             ))}
-            {/* 마지막 이벤트 하단 여백 */}
-            <div className="h-4"></div>
+
+            {/* 로딩 상태 표시 */}
+            {isLoading && (
+              <div className="flex items-center justify-center py-4">
+                <div className="text-slate-400 text-sm font-mono animate-pulse">
+                  더 많은 이벤트를 불러오는 중...
+                </div>
+              </div>
+            )}
+
+            {/* 더 이상 데이터가 없을 때 */}
+            {!hasMore && sortedEvents.length > 0 && (
+              <div className="flex items-center justify-center py-4">
+                <div className="text-slate-500 text-sm font-mono">
+                  모든 이벤트를 불러왔습니다
+                </div>
+              </div>
+            )}
           </div>
         )}
-      </div>
-
-      {/* Footer */}
-      <div className="mt-3 pt-2 border-t border-slate-700/30 text-xs text-slate-500 font-mono">
-        <div className="flex justify-between items-center">
-          <span>
-            Found {sortedEvents.length} events | Monitoring real-time...
-          </span>
-          <span className="text-slate-600">
-            {sortDirection === "asc" ? "↑" : "↓"} {sortField}
-          </span>
-        </div>
       </div>
 
       {/* Custom Scrollbar Styles */}

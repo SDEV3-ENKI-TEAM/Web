@@ -76,14 +76,8 @@ export default function DonutChart({
     datasets: [
       {
         data: [stats.normalCount, stats.anomalyCount],
-        backgroundColor: [
-          "rgba(34, 197, 94, 0.7)", // Terminal green for normal
-          "rgba(239, 68, 68, 0.7)", // Terminal red for anomaly
-        ],
-        borderColor: [
-          "#10b981", // Green border
-          "#ef4444", // Red border
-        ],
+        backgroundColor: ["rgba(34, 197, 94, 0.7)", "rgba(239, 68, 68, 0.7)"],
+        borderColor: ["#10b981", "#ef4444"],
         borderWidth: 2,
         hoverBackgroundColor: [
           "rgba(34, 197, 94, 0.9)",
@@ -101,7 +95,7 @@ export default function DonutChart({
       legend: {
         position: "bottom" as const,
         labels: {
-          color: "#cbd5e1", // Terminal text color
+          color: "#cbd5e1",
           font: {
             family: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
             size: 10,
@@ -113,7 +107,7 @@ export default function DonutChart({
         },
       },
       tooltip: {
-        backgroundColor: "rgba(15, 23, 42, 0.95)", // Dark terminal background
+        backgroundColor: "rgba(15, 23, 42, 0.95)",
         titleColor: "#f1f5f9",
         bodyColor: "#cbd5e1",
         borderColor: "#475569",
