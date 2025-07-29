@@ -392,8 +392,9 @@ class OpenSearchAnalyzer:
         
         events = []
         for i, span in enumerate(all_spans):
-            source = span['_source']
-            events.append(source)
+            # transform_jaeger_span_to_event를 사용하여 korean_event_type 포함
+            transformed_event = self.transform_jaeger_span_to_event(span)
+            events.append(transformed_event)
         print(f"[DEBUG] 반환되는 이벤트 개수: {len(events)}")
         return events
     

@@ -1,4 +1,4 @@
-import { Event, EventDetail, Stats } from "@/types/event";
+import { Event, Stats } from "@/types/event";
 
 const API_BASE_URL = "http://localhost:9200";
 

@@ -385,6 +385,105 @@ async def search_trace_by_id(trace_id: str):
             "message": f"검색 중 오류가 발생했습니다: {str(e)}"
         }
 
+@app.get("/api/traces/node/{trace_id}/{node_id}")
+async def get_node_detail(trace_id: str, node_id: str):
+    """특정 노드의 상세 정보를 반환합니다."""
+    try:
+        events = opensearch_analyzer.get_process_tree_events(trace_id)
+        
+        if not events:
+            return {
+                "data": None,
+                "found": False,
+                "message": f"Trace ID '{trace_id}'를 찾을 수 없습니다."
+            }
+        
+        # node_id를 인덱스로 사용하여 해당 이벤트 찾기
+        try:
+            node_index = int(node_id)
+            if node_index < 0 or node_index >= len(events):
+                return {
+                    "data": None,
+                    "found": False,
+                    "message": f"노드 ID '{node_id}'가 유효하지 않습니다."
+                }
+            
+            target_event = events[node_index]
+            
+            # 이벤트를 transform_jaeger_span_to_event 형식으로 변환
+            transformed_event = opensearch_analyzer.transform_jaeger_span_to_event({
+                "_source": target_event
+            })
+            
+            return {
+                "data": transformed_event,
+                "found": True,
+                "message": f"노드 {node_id} 정보를 찾았습니다."
+            }
+            
+        except ValueError:
+            return {
+                "data": None,
+                "found": False,
+                "message": f"노드 ID '{node_id}'가 숫자가 아닙니다."
+            }
+        
+    except Exception as e:
+        print(f"노드 상세 정보 조회 오류: {e}")
+        return {
+            "data": None,
+            "found": False,
+            "message": f"노드 정보 조회 중 오류가 발생했습니다: {str(e)}"
+        }
+
+@app.get("/api/traces/summary/{trace_id}")
+async def get_trace_summary(trace_id: str):
+    """트레이스의 기본 정보만 반환합니다 (이벤트 제외)."""
+    try:
+        events = opensearch_analyzer.get_process_tree_events(trace_id)
+        
+        if not events:
+            return {
+                "data": None,
+                "found": False,
+                "message": f"Trace ID '{trace_id}'를 찾을 수 없습니다."
+            }
+        
+        events.sort(key=lambda x: x.get('timestamp', ''))
+        first_event = events[0] if events else {}
+        
+        alert_events = [event for event in events if event.get('has_alert', False)]
+        has_any_alert = len(alert_events) > 0
+        
+        trace_data = {
+            "trace_id": trace_id,
+            "host": {
+                "hostname": f"EventAgent-PC",
+                "ip": "192.168.1.100",
+                "os": "Windows 10"
+            },
+            "events": [],  # 이벤트는 빈 배열로 시작
+            "timestamp": first_event.get('timestamp', ''),
+            "label": "이상" if has_any_alert else "정상",
+            "severity": "high" if has_any_alert else "low",
+            "total_events": len(events),  # 총 이벤트 개수
+            "alert_count": len(alert_events)  # 알림 이벤트 개수
+        }
+        
+        return {
+            "data": trace_data,
+            "found": True,
+            "message": f"Trace ID '{trace_id}' 요약 정보를 찾았습니다."
+        }
+        
+    except Exception as e:
+        print(f"Trace ID {trace_id} 요약 조회 오류: {e}")
+        return {
+            "data": None,
+            "found": False,
+            "message": f"요약 정보 조회 중 오류가 발생했습니다: {str(e)}"
+        }
+
 @app.get("/api/dashboard")
 async def get_dashboard():
     """대시보드용 이벤트 목록을 반환합니다."""
@@ -435,7 +534,6 @@ async def get_dashboard_stats():
 async def get_alarm_traces(offset: int = 0, limit: int = 50):
     """OpenSearch에서 알람(에러) 조건에 해당하는 Trace만 알람 리스트로 반환합니다."""
     try:
-        # 대시보드와 동일한 통계 사용
         trace_stats = await get_trace_stats()
         
         query = {
@@ -475,7 +573,7 @@ async def get_alarm_traces(offset: int = 0, limit: int = 50):
         has_more = offset + limit < total
         return {
             "alarms": paged, 
-            "total": trace_stats["anomalyTraces"],  # 대시보드와 동일한 숫자 사용
+            "total": trace_stats["anomalyTraces"],
             "offset": offset, 
             "limit": limit, 
             "hasMore": has_more
@@ -529,7 +627,6 @@ def get_alarm_checked_status(trace_id: str) -> bool:
 async def get_alarms_infinite(cursor: str = None, limit: int = 20):
     """무한스크롤용 알람 API"""
     try:
-        # 대시보드와 동일한 통계 사용
         trace_stats = await get_trace_stats()
         
         query = {
@@ -546,8 +643,7 @@ async def get_alarms_infinite(cursor: str = None, limit: int = 20):
             "size": max(limit * 5, 200),
             "from": 0
         }
-        
-        # 커서가 있으면 시간 필터 추가
+
         if cursor:
             try:
                 cursor_time = datetime.fromisoformat(cursor.replace('Z', '+00:00'))
@@ -577,10 +673,8 @@ async def get_alarms_infinite(cursor: str = None, limit: int = 20):
                 "checked": get_alarm_checked_status(trace_id)
             })
         
-        # limit만큼만 반환
         result_traces = alarms[:limit]
         
-        # 다음 커서 계산
         next_cursor = None
         if len(result_traces) == limit and len(alarms) > limit:
             next_cursor = result_traces[-1]['detected_at']
@@ -589,7 +683,7 @@ async def get_alarms_infinite(cursor: str = None, limit: int = 20):
             "alarms": result_traces,
             "next_cursor": next_cursor,
             "has_more": next_cursor is not None,
-            "total": trace_stats["anomalyTraces"]  # 대시보드와 동일한 숫자 사용
+            "total": trace_stats["anomalyTraces"]
         }
         
     except Exception as e:
@@ -599,7 +693,6 @@ async def get_alarms_infinite(cursor: str = None, limit: int = 20):
 @app.get("/api/timeseries")
 async def get_timeseries():
     try:
-        # 현재 시간 기준으로 최근 1시간 내 데이터만 필터링
         now = datetime.now(timezone(timedelta(hours=9)))
         one_hour_ago = now - timedelta(hours=1)
         one_hour_ago_ms = int(one_hour_ago.timestamp() * 1000)
@@ -615,16 +708,14 @@ async def get_timeseries():
             if not ts:
                 continue
             
-            # 최근 1시간 내 데이터만 포함
             if ts < one_hour_ago_ms:
                 continue
                 
             timestamp = to_korea_time(ts)
             
-            # 이상 징후 확인
+
             tag = src.get('tag', {})
             has_anomaly = (
-                tag.get('anomaly') is not None or
                 tag.get('error') is True or
                 tag.get('otel@status_code') == 'ERROR' or
                 tag.get('sigma@alert') is not None
@@ -643,14 +734,13 @@ async def get_timeseries():
         if len(result) > 30:
             step = len(result) // 30
             result = result[::step]
-        
-        # 실제 데이터가 없거나 너무 적으면 현재 시간 기준 mock 데이터 생성
+    
         if len(result) < 5:
             now = datetime.now(timezone(timedelta(hours=9)))
             for i in range(10):
                 timestamp = (now - timedelta(minutes=i*5)).strftime('%Y-%m-%dT%H:%M:%S')
                 duration = 100 + (i * 50) + (i % 3 * 20)
-                has_anomaly = (i % 3 == 0)  # 3개마다 하나씩 이상 징후
+                has_anomaly = (i % 3 == 0)
                 result.append({
                     "timestamp": timestamp,
                     "duration": duration,

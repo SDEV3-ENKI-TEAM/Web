@@ -68,16 +68,11 @@ AI-Detector/
 
 ```bash
 cd backend
-python -m venv venv
-# Windows
-venv\Scripts\activate
-# macOS/Linux
-source venv/bin/activate
 
 pip install -r requirements.txt
 
 # 서버 실행
-python -m uvicorn security_api:app --reload --host 0.0.0.0 --port 8002
+python Start_server.py
 ```
 
 ---

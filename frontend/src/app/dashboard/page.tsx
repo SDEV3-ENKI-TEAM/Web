@@ -34,13 +34,10 @@ const defaultLayouts = {
     { i: "events", x: 0, y: 10, w: 12, h: 5 },
   ],
 };
-
-// Event를 EventDetail로 변환하는 함수
 function convertEventToEventDetail(event: Event): EventDetailType {
   return {
     id: event.id,
     date: new Date(event.timestamp).toLocaleString("ko-KR"),
-    anomalyScore: event.label === "Anomaly" ? 1.0 : 0.0,
     incident: `보안 이벤트 감지: 사용자 ${event.user}가 ${
       event.event
     } 활동을 수행했습니다. ${
@@ -55,8 +52,22 @@ function convertEventToEventDetail(event: Event): EventDetailType {
       location: "위치 정보 없음",
       timestamp: event.timestamp,
       event_type: event.event,
-      anomaly_score: event.label === "Anomaly" ? "1.000" : "0.000",
       status: event.label,
+    },
+    timestamp: event.timestamp,
+    user: event.user,
+    host: event.host || "",
+    os: event.os || "",
+    event: event.event,
+    label: event.label,
+    duration: event.duration,
+    details: {
+      process_id: "",
+      parent_process_id: "",
+      command_line: "",
+      image_path: "",
+      sigma_rule: "",
+      error_details: "",
     },
   };
 }
@@ -197,6 +208,8 @@ export default function Dashboard() {
     (event: Event): EventDetailType => {
       return {
         id: event.id,
+        date: event.timestamp,
+        incident: event.event,
         timestamp: event.timestamp,
         user: event.user,
         host: event.host || "",
