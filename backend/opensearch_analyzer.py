@@ -1,9 +1,5 @@
 from opensearchpy import OpenSearch
-import json
-import pandas as pd
-from datetime import datetime
-from typing import Dict, List, Optional
-import os
+from typing import Dict, List
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -210,70 +206,6 @@ class OpenSearchAnalyzer:
             print(f"한국어 시간 변환 오류: {e}")
             return korean_time
 
-    def get_sysmon_event_type_korean(self, event_id: str) -> str:
-        """Sysmon Event ID를 한국어 이벤트 타입으로 변환합니다."""
-        korean_event_map = {
-            "1": "프로세스 실행",
-            "2": "파일 시간 변경", 
-            "3": "네트워크 연결",
-            "4": "Sysmon 서비스 상태",
-            "5": "프로세스 종료",
-            "6": "드라이버 로드",
-            "7": "이미지 로드",
-            "8": "원격 스레드 생성",
-            "9": "파일 직접 접근",
-            "10": "프로세스 접근",
-            "11": "파일 쓰기",
-            "12": "레지스트리 이벤트",
-            "13": "레지스트리 값 설정",
-            "14": "레지스트리 키 이름변경",
-            "15": "파일 스트림 생성",
-            "16": "서비스 설정 변경",
-            "17": "파이프 생성",
-            "18": "파이프 연결",
-            "19": "WMI 이벤트 필터",
-            "20": "WMI 이벤트 컨슈머",
-            "21": "WMI 컨슈머 필터",
-            "22": "DNS 이벤트",
-            "23": "파일 삭제",
-            "24": "클립보드 변경",
-            "25": "프로세스 변조",
-            "26": "파일 삭제 탐지"
-        }
-        result = korean_event_map.get(str(event_id), f"이벤트 {event_id}")
-        return result
-
-    def get_sysmon_event_type(self, event_id: str) -> str:
-        """Sysmon Event ID를 이벤트 타입으로 변환합니다."""
-        event_map = {
-            "1": "process_creation",
-            "2": "file_change_time", 
-            "3": "network_connection",
-            "4": "sysmon_service_state",
-            "5": "process_termination",
-            "6": "driver_loaded",
-            "7": "image_loaded",
-            "8": "create_remote_thread",
-            "9": "raw_access_read",
-            "10": "process_access",
-            "11": "file_write",
-            "12": "registry_event",
-            "13": "registry_value_set",
-            "14": "registry_key_rename",
-            "15": "file_stream_created",
-            "16": "service_configuration_change",
-            "17": "pipe_created",
-            "18": "pipe_connected",
-            "19": "wmi_event_filter",
-            "20": "wmi_event_consumer",
-            "21": "wmi_event_consumer_filter",
-            "22": "dns_event",
-            "23": "file_delete",
-            "24": "clipboard_changed",
-            "25": "process_tampering",
-            "26": "file_delete_detected"
-        }
-        return event_map.get(str(event_id), "unknown_event")
     
     def transform_jaeger_span_to_event(self, span: Dict) -> Dict:
         """Jaeger 스팬을 Events 페이지 형식으로 변환합니다."""
@@ -392,9 +324,8 @@ class OpenSearchAnalyzer:
         
         events = []
         for i, span in enumerate(all_spans):
-            # transform_jaeger_span_to_event를 사용하여 korean_event_type 포함
-            transformed_event = self.transform_jaeger_span_to_event(span)
-            events.append(transformed_event)
+            source = span['_source']
+            events.append(source)
         print(f"[DEBUG] 반환되는 이벤트 개수: {len(events)}")
         return events
     

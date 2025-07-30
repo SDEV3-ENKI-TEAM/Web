@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { usePathname, useRouter } from "next/navigation";
 import { useDashboard } from "@/context/DashboardContext";
 
-export default function Sidebar() {
+function SidebarComponent() {
   const pathname = usePathname();
   const router = useRouter();
   const { ensureEventLogWidgets } = useDashboard();
@@ -359,3 +359,5 @@ export default function Sidebar() {
     </motion.aside>
   );
 }
+
+export default React.memo(SidebarComponent);

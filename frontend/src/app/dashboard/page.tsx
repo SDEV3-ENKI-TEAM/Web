@@ -21,57 +21,6 @@ import { Event, Stats, EventDetail as EventDetailType } from "@/types/event";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
-const defaultLayouts = {
-  lg: [
-    { i: "stat1", x: 0, y: 0, w: 3, h: 2 },
-    { i: "stat2", x: 3, y: 0, w: 3, h: 2 },
-    { i: "stat3", x: 6, y: 0, w: 3, h: 2 },
-    { i: "stat4", x: 9, y: 0, w: 3, h: 2 },
-    { i: "timeseries", x: 0, y: 2, w: 8, h: 4 },
-    { i: "donut", x: 8, y: 2, w: 4, h: 4 },
-    { i: "bar", x: 0, y: 6, w: 6, h: 4 },
-    { i: "heatmap", x: 6, y: 6, w: 6, h: 4 },
-    { i: "events", x: 0, y: 10, w: 12, h: 5 },
-  ],
-};
-function convertEventToEventDetail(event: Event): EventDetailType {
-  return {
-    id: event.id,
-    date: new Date(event.timestamp).toLocaleString("ko-KR"),
-    incident: `보안 이벤트 감지: 사용자 ${event.user}가 ${
-      event.event
-    } 활동을 수행했습니다. ${
-      event.label === "Anomaly"
-        ? "이 활동은 의심스러운 것으로 분류되어 조사가 필요합니다."
-        : "이 활동은 정상적인 활동으로 보입니다."
-    }`,
-    rowData: {
-      ip_address: "192.168.1." + (Math.floor(Math.random() * 254) + 1),
-      user: event.user,
-      number: event.id.toString(),
-      location: "위치 정보 없음",
-      timestamp: event.timestamp,
-      event_type: event.event,
-      status: event.label,
-    },
-    timestamp: event.timestamp,
-    user: event.user,
-    host: event.host || "",
-    os: event.os || "",
-    event: event.event,
-    label: event.label,
-    duration: event.duration,
-    details: {
-      process_id: "",
-      parent_process_id: "",
-      command_line: "",
-      image_path: "",
-      sigma_rule: "",
-      error_details: "",
-    },
-  };
-}
-
 export default function Dashboard() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
@@ -87,7 +36,6 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [timeseriesData, setTimeseriesData] = useState<any[]>([]);
 
-  // 무한스크롤 관련 상태
   const [infiniteAlarms, setInfiniteAlarms] = useState<any[]>([]);
   const [infiniteLoading, setInfiniteLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -97,7 +45,6 @@ export default function Dashboard() {
   const router = useRouter();
   const { widgets } = useDashboard();
 
-  // Load data on mount (without auto-refresh)
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -122,7 +69,6 @@ export default function Dashboard() {
     loadData();
   }, []);
 
-  // 무한스크롤 초기 데이터 로드
   useEffect(() => {
     const loadInfiniteAlarms = async () => {
       try {
@@ -144,7 +90,6 @@ export default function Dashboard() {
     loadInfiniteAlarms();
   }, []);
 
-  // 더 많은 데이터 로드 함수
   const loadMoreAlarms = async () => {
     if (infiniteLoading || !hasMore) return;
 
@@ -168,7 +113,6 @@ export default function Dashboard() {
     }
   };
 
-  // 시계열 데이터 fetch (주기적 업데이트)
   useEffect(() => {
     const fetchTimeseries = async () => {
       try {
@@ -182,10 +126,8 @@ export default function Dashboard() {
       }
     };
 
-    // 초기 로드
     fetchTimeseries();
 
-    // 10초마다 업데이트
     const interval = setInterval(fetchTimeseries, 10000);
 
     return () => clearInterval(interval);
@@ -229,8 +171,6 @@ export default function Dashboard() {
     },
     []
   );
-
-  // 실제 위젯 데이터로부터 레이아웃 생성 (메모이제이션)
   const currentLayout = useMemo(() => {
     return widgets
       .filter((widget) => widget.visible)
@@ -243,20 +183,6 @@ export default function Dashboard() {
       }));
   }, [widgets]);
 
-  // Calculate threat level (메모이제이션)
-  const threatData = useMemo(() => {
-    const threatLevel =
-      stats.anomalies > 10 ? "HIGH" : stats.anomalies > 5 ? "MEDIUM" : "LOW";
-    const threatColor =
-      threatLevel === "HIGH"
-        ? "text-red-400"
-        : threatLevel === "MEDIUM"
-        ? "text-yellow-400"
-        : "text-green-400";
-    return { threatLevel, threatColor };
-  }, [stats.anomalies]);
-
-  // WidgetWrapper를 메모이제이션
   const WidgetWrapper = useCallback(
     ({ children, title, onRemove, widgetType }: any) => (
       <div className="h-full bg-slate-900/50 backdrop-blur-xl border border-slate-700/50 rounded-lg overflow-hidden font-mono relative z-0">
@@ -313,14 +239,12 @@ export default function Dashboard() {
           <div className="text-3xl font-bold text-blue-400 mb-1">
             {stats.totalEvents}
           </div>
-          <div className="text-slate-500 text-xs">오류 발생인 도는 쌀을 수</div>
         </div>
         <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
           <div className="text-slate-400 text-xs mb-2">주요 수</div>
           <div className="text-3xl font-bold text-red-400 mb-1">
             {stats.anomalies}
           </div>
-          <div className="text-slate-500 text-xs">위험도 높음</div>
         </div>
       </div>
     ),
@@ -357,7 +281,7 @@ export default function Dashboard() {
             user: alarm.host,
             host: alarm.host,
             os: alarm.os,
-            label: "Anomaly", // alarms는 에러 상태이므로 Anomaly
+            label: "Anomaly",
             event: alarm.summary,
           }))}
           onEventSelect={handleEventClick}

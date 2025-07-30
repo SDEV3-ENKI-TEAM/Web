@@ -13,6 +13,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { useParams } from "next/navigation";
+import CustomNode from "@/components/CustomNode";
 
 interface Trace {
   trace_id: string;
@@ -26,12 +27,74 @@ interface Trace {
 
 const eventTypeExplanations: { [key: string]: string } = {
   process_creation: "프로그램 실행 - 새로운 프로그램이 시작되었습니다",
+  processcreate: "프로그램 실행 - 새로운 프로그램이 시작되었습니다",
+  processterminated: "프로세스 종료 - 실행 중인 프로그램이 종료되었습니다",
   network_connection: "네트워크 연결 - 인터넷이나 다른 컴퓨터와 통신합니다",
   file_access: "파일 접근 - 파일을 읽거나 수정하려고 합니다",
   registry_modification: "시스템 설정 변경 - 윈도우 시스템 설정을 수정합니다",
   privilege_escalation: "권한 상승 - 더 높은 권한을 얻으려고 시도합니다",
   data_exfiltration: "데이터 유출 - 중요한 정보를 외부로 전송합니다",
 };
+
+const NODES_PER_COLUMN = 5;
+
+const getNodeStyle = (hasAlert: boolean, totalNodes: number) => ({
+  background: hasAlert ? "rgba(239, 68, 68, 0.1)" : "rgba(15, 23, 42, 0.8)",
+  border: hasAlert
+    ? "2px solid rgba(239, 68, 68, 0.8)"
+    : "1px solid rgba(59, 130, 246, 0.5)",
+  borderRadius: "8px",
+  color: "#e2e8f0",
+  fontFamily: "ui-monospace, SFMono-Regular, monospace",
+  fontSize: totalNodes > 12 ? "12px" : "14px",
+  backdropFilter: "blur(8px)",
+  padding: totalNodes > 12 ? "10px" : "12px",
+  minWidth: totalNodes > 12 ? "200px" : "250px",
+  minHeight: totalNodes > 12 ? "70px" : "80px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  textAlign: "center" as const,
+  boxShadow: hasAlert
+    ? "0 4px 8px rgba(239, 68, 68, 0.2)"
+    : "0 2px 4px rgba(0, 0, 0, 0.1)",
+});
+
+const getDisplayLabelStyle = (hasAlert: boolean, totalNodes: number) => ({
+  textAlign: "center" as const,
+  fontSize: totalNodes > 12 ? "12px" : "13px",
+  lineHeight: "1.2",
+  color: hasAlert ? "#ef4444" : "#e2e8f0",
+  fontWeight: hasAlert ? "bold" : "normal",
+});
+
+const getEdgeStyle = (hasAlert: boolean) => ({
+  stroke: hasAlert ? "#ef4444" : "#3b82f6",
+  strokeWidth: hasAlert ? 3 : 2,
+  strokeDasharray: hasAlert ? "4,4" : "none",
+});
+
+const getMarkerEnd = (hasAlert: boolean) => ({
+  type: MarkerType.ArrowClosed,
+  color: hasAlert ? "#ef4444" : "#3b82f6",
+  width: 20,
+  height: 20,
+});
+function getNodeLayout(idx: number, totalNodes: number) {
+  const colIndex = Math.floor(idx / NODES_PER_COLUMN);
+  const rowIndex = idx % NODES_PER_COLUMN;
+  const x = colIndex * 350;
+  const y = rowIndex * 120;
+  const isLastInColumn = rowIndex === NODES_PER_COLUMN - 1;
+  const isLastNode = idx === totalNodes - 1;
+  return {
+    x,
+    y,
+    sourcePosition:
+      isLastInColumn && !isLastNode ? Position.Right : Position.Bottom,
+    targetPosition: rowIndex === 0 && idx !== 0 ? Position.Left : Position.Top,
+  };
+}
 
 function getProcessDisplayName(event: any): string {
   const tag = event.tag || {};
@@ -48,10 +111,33 @@ function getProcessDisplayName(event: any): string {
   return "알 수 없는 활동";
 }
 
-const defaultViewport = {
-  x: 0,
-  y: 0,
-  zoom: 0.7,
+const sysmonEventKorean: { [key: string]: string } = {
+  "1": "프로세스 실행",
+  "2": "파일 시간 변경",
+  "3": "네트워크 연결",
+  "4": "Sysmon 서비스 상태",
+  "5": "프로세스 종료",
+  "6": "드라이버 로드",
+  "7": "이미지 로드",
+  "8": "원격 스레드 생성",
+  "9": "파일 직접 접근",
+  "10": "프로세스 접근",
+  "11": "파일 쓰기",
+  "12": "레지스트리 이벤트",
+  "13": "레지스트리 값 설정",
+  "14": "레지스트리 키 이름변경",
+  "15": "파일 스트림 생성",
+  "16": "서비스 설정 변경",
+  "17": "파이프 생성",
+  "18": "파이프 연결",
+  "19": "WMI 이벤트 필터",
+  "20": "WMI 이벤트 컨슈머",
+  "21": "WMI 컨슈머 필터",
+  "22": "DNS 이벤트",
+  "23": "파일 삭제",
+  "24": "클립보드 변경",
+  "25": "프로세스 변조",
+  "26": "파일 삭제 탐지",
 };
 
 function AlarmDetailContent() {
@@ -63,61 +149,29 @@ function AlarmDetailContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"report" | "response">("report");
   const [showRaw, setShowRaw] = useState(false);
-  const [nodeDetails, setNodeDetails] = useState<{ [key: string]: any }>({});
-  const [loadingNodes, setLoadingNodes] = useState<Set<string>>(new Set());
 
-  const onNodeClick = useCallback(
-    async (event: any, node: any) => {
-      setSelectedNode(node);
+  const handleTabChange = useCallback((tab: "report" | "response") => {
+    setActiveTab(tab);
+  }, []);
+  const reactFlowInstance = useRef<any>(null);
 
-      // 이미 로드된 데이터가 있으면 사용
-      if (nodeDetails[node.id]) {
-        return;
-      }
+  const onNodeClick = useCallback((_: any, node: any) => {
+    setSelectedNode(node);
+  }, []);
 
-      // 노드 클릭 시에만 해당 노드의 상세 데이터 로드
-      setLoadingNodes((prev) => new Set(prev).add(node.id));
+  const handleLogout = useCallback(() => {}, []);
 
-      try {
-        const response = await fetch(`/api/traces/node/${trace_id}/${node.id}`);
-        const data = await response.json();
+  const onLoad = useCallback((inst: any) => {
+    reactFlowInstance.current = inst;
+    inst.fitView();
+  }, []);
 
-        if (data.found && data.data) {
-          setNodeDetails((prev) => ({
-            ...prev,
-            [node.id]: data.data,
-          }));
-        }
-      } catch (error) {
-        console.error("노드 상세 데이터 로드 실패:", error);
-      } finally {
-        setLoadingNodes((prev) => {
-          const newSet = new Set(prev);
-          newSet.delete(node.id);
-          return newSet;
-        });
-      }
-    },
-    [trace_id, nodeDetails]
-  );
+  const onCloseModal = useCallback(() => {
+    setSelectedNode(null);
+  }, []);
 
   const nodeDetail = useMemo(() => {
     if (!selectedNode || !trace) return null;
-
-    // 로드된 상세 데이터가 있으면 사용
-    const detailedEvent = nodeDetails[selectedNode.id];
-    if (detailedEvent) {
-      return {
-        event: detailedEvent,
-        index: Number(selectedNode.id),
-        host: trace.host.hostname,
-        os: trace.host.os,
-        sigma: detailedEvent.alert_message ? [detailedEvent.alert_message] : [],
-        explanation: selectedNode.data.explanation,
-      };
-    }
-
-    // 기본 데이터 사용
     const event = selectedNode.data?.event;
     if (!event) return null;
     const tag = event.tag || {};
@@ -129,9 +183,9 @@ function AlarmDetailContent() {
       sigma: tag["sigma@alert"] ? [tag["sigma@alert"]] : [],
       explanation: selectedNode.data.explanation,
     };
-  }, [selectedNode, trace, nodeDetails]);
+  }, [selectedNode, trace]);
 
-  const generateLLMAnalysis = (trace: Trace) => {
+  const generateLLMAnalysis = useCallback((trace: Trace) => {
     const alertEvents = trace.events.filter((event) => {
       const tag = event.tag || {};
       return !!tag["sigma@alert"] || tag.error === true || tag.error === "true";
@@ -149,178 +203,184 @@ function AlarmDetailContent() {
         : "현재 안전한 상태이지만 지속적인 모니터링을 권장합니다",
       summary: trace.prompt_input || "분석 중...",
     };
-  };
-  const currentAnalysis = trace ? generateLLMAnalysis(trace) : null;
+  }, []);
+  const currentAnalysis = useMemo(() => {
+    if (!trace) return null;
+    return generateLLMAnalysis(trace);
+  }, [trace, generateLLMAnalysis]);
+
+  const memoizedDefaultViewport = useMemo(
+    () => ({
+      x: 0,
+      y: 0,
+      zoom: 0.7,
+    }),
+    []
+  );
 
   useEffect(() => {
-    setIsLoading(true);
-    fetch(`/api/traces/search/${trace_id}`)
-      .then((res) => res.json())
-      .then((data) => {
+    const fetchTrace = async () => {
+      setIsLoading(true);
+      try {
+        const res = await fetch(`/api/traces/search/${trace_id}`);
+        const data = await res.json();
         setTrace(data.data || null);
+      } catch (error) {
+        console.error("Trace fetch failed:", error);
+      } finally {
         setIsLoading(false);
-      })
-      .catch(() => setIsLoading(false));
+      }
+    };
+
+    fetchTrace();
   }, [trace_id]);
 
-  useEffect(() => {
+  const memoizedNodesAndEdges = useMemo(() => {
     if (!trace || !trace.events) {
-      setNodes([]);
-      setEdges([]);
-      return;
+      return { nodes: [], edges: [] };
     }
 
-    const filteredEvents = trace.events.filter((event, index, arr) => {
-      // 백엔드에서 이미 변환된 데이터 사용
-      const eventType = event.event_type || "";
-      const sysmonEventId = event.sysmon_event_id || "";
+    const filteredEvents = trace.events.filter(
+      (event: any, index: number, arr: any[]) => {
+        const source = event._source || event;
+        const tag = source.tag || {};
 
-      const isSysmonId =
-        sysmonEventId &&
-        parseInt(sysmonEventId) >= 1 &&
-        parseInt(sysmonEventId) <= 26;
+        const eventId = tag.ID;
+        const isSysmonId = eventId && eventId >= 1 && eventId <= 26;
 
-      const isValidEvent =
-        isSysmonId ||
-        eventType.includes("process") ||
-        eventType.includes("file") ||
-        eventType.includes("network") ||
-        eventType.includes("registry") ||
-        eventType.includes("driver");
+        let eventType = "";
+        if (tag.EventName) {
+          eventType = tag.EventName.split("(")[0]
+            .trim()
+            .toLowerCase()
+            .replace(/ /g, "_");
+        }
 
-      if (!isValidEvent) return false;
+        const isValidEvent =
+          isSysmonId ||
+          eventType.includes("process") ||
+          eventType.includes("file") ||
+          eventType.includes("network") ||
+          eventType.includes("registry") ||
+          eventType.includes("driver");
 
-      const duplicateIndex = arr.findIndex(
-        (e) => JSON.stringify(e) === JSON.stringify(event)
-      );
-      return duplicateIndex === index;
-    });
+        if (!isValidEvent) return false;
+
+        const duplicateIndex = arr.findIndex(
+          (e: any) => JSON.stringify(e) === JSON.stringify(event)
+        );
+        return duplicateIndex === index;
+      }
+    );
+
     const totalNodes = filteredEvents.length;
-    const NODES_PER_COLUMN = 5;
-    const getNodeLayout = (idx: number, totalNodes: number) => {
-      const colIndex = Math.floor(idx / NODES_PER_COLUMN);
-      const rowIndex = idx % NODES_PER_COLUMN;
-      const x = colIndex * 350;
-      const y = rowIndex * 120;
-      const isLastInColumn = rowIndex === NODES_PER_COLUMN - 1;
-      const isLastNode = idx === totalNodes - 1;
-      return {
-        x,
-        y,
-        sourcePosition:
-          isLastInColumn && !isLastNode ? Position.Right : Position.Bottom,
-        targetPosition:
-          rowIndex === 0 && idx !== 0 ? Position.Left : Position.Top,
-      };
-    };
-    const newNodes = filteredEvents.map((event, idx) => {
-      // 백엔드에서 변환된 데이터 사용
-      const eventType = event.event_type || "unknown_event";
-      const eventTypeKor = event.korean_event_type || eventType;
-      const processName = event.process_name || "알 수 없는 활동";
-      const finalLabel = `${processName} (${eventTypeKor})`;
+
+    const newNodes = filteredEvents.map((event: any, idx: number) => {
+      const source = event._source || event;
+      const tag = source.tag || {};
+
+      let eventType = "";
+      if (tag.EventName) {
+        eventType = tag.EventName.split("(")[0]
+          .replace(/[^a-zA-Z]/g, "")
+          .toLowerCase();
+      } else {
+        eventType = "unknownevent";
+      }
+
+      let processName =
+        tag.ProcessName || tag.Image || tag.EventName || "알 수 없는 활동";
+      if (typeof processName === "string" && processName.includes(".exe")) {
+        const match = processName.match(/([^\\/]+\.exe)/i);
+        if (match) processName = match[1];
+      }
+
+      const eventId = tag.ID;
+      const op = event.operationName || "";
+      let eventKor = "";
+      const match = op.match(/evt:(\d+)/);
+      if (match) {
+        const evtId = match[1];
+        eventKor = sysmonEventKorean[evtId] || `이벤트 ${evtId}`;
+      } else {
+        eventKor = "";
+      }
+      const finalLabel = `${processName} (${eventKor})`;
       const explanation = eventTypeExplanations[eventType] || eventType;
-      const hasAlert = event.has_alert || false;
-      const nodeStyle = {
-        background: hasAlert
-          ? "rgba(239, 68, 68, 0.1)"
-          : "rgba(15, 23, 42, 0.8)",
-        border: hasAlert
-          ? "2px solid rgba(239, 68, 68, 0.8)"
-          : "1px solid rgba(59, 130, 246, 0.5)",
-        borderRadius: "8px",
-        color: "#e2e8f0",
-        fontFamily: "ui-monospace, SFMono-Regular, monospace",
-        fontSize: totalNodes > 12 ? "12px" : "14px",
-        backdropFilter: "blur(8px)",
-        padding: totalNodes > 12 ? "10px" : "12px",
-        minWidth: totalNodes > 12 ? "200px" : "250px",
-        minHeight: totalNodes > 12 ? "70px" : "80px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        textAlign: "center" as const,
-        boxShadow: hasAlert
-          ? "0 4px 8px rgba(239, 68, 68, 0.2)"
-          : "0 2px 4px rgba(0, 0, 0, 0.1)",
-      };
+      const hasAlert =
+        !!tag["sigma@alert"] || tag.error === true || tag.error === "true";
+      const nodeStyle = getNodeStyle(hasAlert, totalNodes);
       const displayLabel = (
-        <div
-          style={{
-            textAlign: "center",
-            fontSize: totalNodes > 12 ? "12px" : "13px",
-            lineHeight: "1.2",
-            color: hasAlert ? "#ef4444" : "#e2e8f0",
-            fontWeight: hasAlert ? "bold" : "normal",
-          }}
-        >
+        <div style={getDisplayLabelStyle(hasAlert, totalNodes)}>
           <div>
             {idx + 1}. {processName}
-            {loadingNodes.has(String(idx)) && (
-              <span
-                style={{
-                  marginLeft: "8px",
-                  fontSize: "10px",
-                  color: "#3b82f6",
-                }}
-              >
-                로딩...
-              </span>
-            )}
           </div>
-          <div style={{ fontSize: "11px", opacity: 0.8 }}>({eventTypeKor})</div>
+          <div style={{ fontSize: "11px", opacity: 0.8 }}>({eventKor})</div>
         </div>
       );
       const layout = getNodeLayout(idx, totalNodes);
       return {
         id: String(idx),
         data: {
-          label: displayLabel,
+          idx,
+          processName,
+          eventKor,
+          hasAlert,
+          totalNodes,
           event: event,
           explanation: explanation,
+          sourcePosition: layout.sourcePosition,
+          targetPosition: layout.targetPosition,
         },
         position: { x: layout.x, y: layout.y },
         sourcePosition: layout.sourcePosition,
         targetPosition: layout.targetPosition,
-        type: "default",
-        style: nodeStyle,
+        type: "customNode",
       };
     });
-    const newEdges = filteredEvents.slice(1).map((_, idx) => {
+
+    const newEdges = filteredEvents.slice(1).map((_: any, idx: number) => {
       const sourceEvent = filteredEvents[idx];
       const targetEvent = filteredEvents[idx + 1];
 
-      const hasSourceAlert = sourceEvent.has_alert || false;
-      const hasTargetAlert = targetEvent.has_alert || false;
-      const edgeColor =
-        hasSourceAlert || hasTargetAlert ? "#ef4444" : "#3b82f6";
-      const edgeWidth = hasSourceAlert || hasTargetAlert ? 3 : 2;
+      const sourceTag = sourceEvent.tag || {};
+      const targetTag = targetEvent.tag || {};
+
+      const hasSourceAlert =
+        sourceTag["sigma@alert"] ||
+        sourceTag.error === true ||
+        sourceTag.error === "true";
+      const hasTargetAlert =
+        targetTag["sigma@alert"] ||
+        targetTag.error === true ||
+        targetTag.error === "true";
+
+      const hasAlert = hasSourceAlert || hasTargetAlert;
       const sourceColIndex = Math.floor(idx / NODES_PER_COLUMN);
       const targetColIndex = Math.floor((idx + 1) / NODES_PER_COLUMN);
       const isColumnTransition = sourceColIndex !== targetColIndex;
+
       return {
         id: `e${idx}-${idx + 1}`,
         source: String(idx),
         target: String(idx + 1),
-        sourceHandle: null,
-        targetHandle: null,
+        sourceHandle: "right",
+        targetHandle: "left",
         type: isColumnTransition ? "smoothstep" : "default",
-        style: {
-          stroke: edgeColor,
-          strokeWidth: edgeWidth,
-          strokeDasharray: hasSourceAlert || hasTargetAlert ? "4,4" : "none",
-        },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: edgeColor,
-          width: 20,
-          height: 20,
-        },
+        style: getEdgeStyle(hasAlert),
+        markerEnd: getMarkerEnd(hasAlert),
       };
     });
-    setNodes(newNodes);
-    setEdges(newEdges);
-  }, [trace, setNodes, setEdges]);
+
+    return { nodes: newNodes, edges: newEdges };
+  }, [trace?.events]);
+
+  useEffect(() => {
+    setNodes(memoizedNodesAndEdges.nodes);
+    setEdges(memoizedNodesAndEdges.edges);
+  }, [memoizedNodesAndEdges, setNodes, setEdges]);
+
+  const nodeTypes = useMemo(() => ({ customNode: CustomNode }), []);
 
   return (
     <DashboardLayout onLogout={() => {}}>
@@ -358,7 +418,7 @@ function AlarmDetailContent() {
 
               <div className="flex space-x-2">
                 <button
-                  onClick={() => setActiveTab("report")}
+                  onClick={() => handleTabChange("report")}
                   className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
                     activeTab === "report"
                       ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
@@ -368,7 +428,7 @@ function AlarmDetailContent() {
                   종합보고
                 </button>
                 <button
-                  onClick={() => setActiveTab("response")}
+                  onClick={() => handleTabChange("response")}
                   className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
                     activeTab === "response"
                       ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
@@ -549,15 +609,15 @@ function AlarmDetailContent() {
               공격 흐름 시각화 - 클릭하면 자세한 정보를 볼 수 있습니다
             </span>
           </div>
-          {/* Flow Chart */}
           <div className="flex-1 w-full bg-slate-900/50 relative flex items-center justify-center">
             <ReactFlow
               nodes={nodes}
               edges={edges}
+              nodeTypes={nodeTypes}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               className="bg-transparent"
-              defaultViewport={defaultViewport}
+              defaultViewport={memoizedDefaultViewport}
               minZoom={0.3}
               maxZoom={4}
               attributionPosition="bottom-left"
@@ -566,17 +626,27 @@ function AlarmDetailContent() {
               zoomOnScroll
               zoomOnPinch
               zoomOnDoubleClick
-              fitView
+              fitView={false}
+              onLoad={onLoad}
               style={{
                 backgroundColor: "transparent",
                 width: "100%",
                 height: "100%",
               }}
               onNodeClick={onNodeClick}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              elementsSelectable={false}
+              selectNodesOnDrag={false}
+              multiSelectionKeyCode={null}
+              deleteKeyCode={null}
+              snapToGrid={false}
+              snapGrid={[15, 15]}
+              onlyRenderVisibleElements={true}
+              proOptions={{ hideAttribution: true }}
             />
           </div>
         </div>
-        {/* Node Detail Modal */}
         <AnimatePresence>
           {selectedNode && nodeDetail && (
             <motion.div
@@ -584,7 +654,7 @@ function AlarmDetailContent() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-              onClick={() => setSelectedNode(null)}
+              onClick={onCloseModal}
             >
               <motion.div
                 initial={{ opacity: 0, scale: 0.8, y: 50 }}
@@ -593,7 +663,6 @@ function AlarmDetailContent() {
                 onClick={(e) => e.stopPropagation()}
                 className="bg-slate-900/90 backdrop-blur-md border border-slate-700/50 rounded-xl shadow-2xl p-8 min-w-[500px] max-w-4xl max-h-[90vh] overflow-y-auto relative font-mono"
               >
-                {/* Terminal Header */}
                 <div className="bg-slate-800/80 px-4 py-2 -mx-8 -mt-8 mb-6 border-b border-slate-700/50 flex items-center gap-2">
                   <div className="flex gap-2">
                     <div className="w-3 h-3 bg-red-500 rounded-full"></div>
@@ -605,7 +674,7 @@ function AlarmDetailContent() {
                   </span>
                   <button
                     className="ml-auto text-slate-400 hover:text-red-400 text-lg font-bold"
-                    onClick={() => setSelectedNode(null)}
+                    onClick={onCloseModal}
                   >
                     ×
                   </button>
@@ -613,61 +682,12 @@ function AlarmDetailContent() {
                 <h3 className="text-lg font-bold mb-4 text-cyan-400">
                   단계별 상세 정보
                 </h3>
-                {/* 한글 설명 및 이벤트 타입 */}
                 <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                   <div className="text-blue-300 font-semibold mb-2">
-                    {(() => {
-                      const tag = nodeDetail.event.tag || {};
-                      let eventType = "";
-                      if (tag.EventName) {
-                        eventType = tag.EventName.split("(")[0]
-                          .replace(/[^a-zA-Z]/g, "")
-                          .toLowerCase();
-                      } else if (tag.TaskName) {
-                        eventType = tag.TaskName.split("(")[0]
-                          .replace(/[^a-zA-Z]/g, "")
-                          .toLowerCase();
-                      } else {
-                        eventType = "unknownevent";
-                      }
-                      const eventTypeMap: { [key: string]: string } = {
-                        processcreate: "프로세스 생성",
-                        processterminated: "프로세스 종료",
-                        networkconnectiondetected: "네트워크 연결 감지",
-                        filecreatetimechanged: "파일 생성 시간 변경",
-                        sysmonservicestatechanged: "Sysmon 서비스 상태 변경",
-                        driverloaded: "드라이버 로드",
-                        imageloaded: "이미지(모듈/DLL) 로드",
-                        createremotethread: "원격 스레드 생성 시도",
-                        rawaccessread: "로우 디스크 접근",
-                        processaccess: "프로세스 접근",
-                        filecreate: "파일 생성",
-                        registryeventcreatekey: "레지스트리 키 생성",
-                        registryeventdeletekey: "레지스트리 키 삭제",
-                        registryeventsetvalue: "레지스트리 값 설정",
-                        registryeventdeletevalue: "레지스트리 값 삭제",
-                        configchange: "Sysmon 설정 변경",
-                        pipeeventpipecreated: "Named pipe 생성",
-                        pipeeventpipeconnected: "Named pipe 연결",
-                        wmieventfilteractivitydetected:
-                          "WMI EventFilter 활동 감지",
-                        wmieventconsumeractivitydetected:
-                          "WMI EventConsumer 활동 감지",
-                        wmieventconsumertofilteractivitydetected:
-                          "WMI EventConsumer-Filter 연결",
-                        dnsquery: "DNS 쿼리 감지",
-                        filedelete: "파일 삭제 감지",
-                        clipboardchange: "클립보드 내용 변경",
-                        processtampering: "프로세스 이미지 변조",
-                        filedeletearchived: "파일 삭제 후 아카이빙",
-                        unknownevent: "알 수 없는 이벤트",
-                      };
-                      return eventTypeMap[eventType] || "알 수 없는 이벤트";
-                    })()}
+                    이벤트 타입
                   </div>
                   <div className="text-slate-300">{nodeDetail.explanation}</div>
                 </div>
-                {/* 활동유형, 단계, TraceID, 실행시간 */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div className="min-w-0">
                     <span className="text-slate-400">활동 유형:</span>
@@ -713,7 +733,6 @@ function AlarmDetailContent() {
                     </div>
                   </div>
                 </div>
-                {/* 실행 프로그램, 명령어, 부모, 사용자, 경로, 호스트, OS */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                   <div className="min-w-0">
                     <span className="text-slate-400">실행된 프로그램:</span>
@@ -780,7 +799,6 @@ function AlarmDetailContent() {
                     </div>
                   </div>
                 </div>
-                {/* Sigma 룰 */}
                 {nodeDetail.event.tag?.["sigma@alert"] && (
                   <div className="mt-4">
                     <span className="text-slate-400">탐지된 Sigma 룰:</span>

@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 
@@ -9,7 +10,7 @@ interface DashboardLayoutProps {
   onOpenSettings?: () => void;
 }
 
-export default function DashboardLayout({
+function DashboardLayoutComponent({
   children,
   onLogout,
   onOpenSettings,
@@ -105,3 +106,5 @@ export default function DashboardLayout({
     </div>
   );
 }
+
+export default React.memo(DashboardLayoutComponent);

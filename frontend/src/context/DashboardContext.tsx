@@ -1,6 +1,13 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
 
 export interface DashboardWidget {
   id: string;
@@ -159,26 +166,26 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("dashboard-layout", JSON.stringify(widgets));
   }, [widgets]);
 
-  const toggleWidget = (id: string) => {
+  const toggleWidget = useCallback((id: string) => {
     setWidgets((prev) =>
       prev.map((widget) =>
         widget.id === id ? { ...widget, visible: !widget.visible } : widget
       )
     );
-  };
+  }, []);
 
-  const updateWidgetPosition = (
-    id: string,
-    position: { x: number; y: number; w: number; h: number }
-  ) => {
-    setWidgets((prev) =>
-      prev.map((widget) =>
-        widget.id === id ? { ...widget, position } : widget
-      )
-    );
-  };
+  const updateWidgetPosition = useCallback(
+    (id: string, position: { x: number; y: number; w: number; h: number }) => {
+      setWidgets((prev) =>
+        prev.map((widget) =>
+          widget.id === id ? { ...widget, position } : widget
+        )
+      );
+    },
+    []
+  );
 
-  const updateWidgetConfig = (id: string, config: any) => {
+  const updateWidgetConfig = useCallback((id: string, config: any) => {
     setWidgets((prev) =>
       prev.map((widget) =>
         widget.id === id
@@ -186,9 +193,9 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           : widget
       )
     );
-  };
+  }, []);
 
-  const addWidget = (newWidget: Omit<DashboardWidget, "id">) => {
+  const addWidget = useCallback((newWidget: Omit<DashboardWidget, "id">) => {
     const id = `widget_${Date.now()}_${Math.random()
       .toString(36)
       .substr(2, 9)}`;
@@ -199,37 +206,40 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     };
 
     setWidgets((prev) => [...prev, widget]);
-  };
+  }, []);
 
-  const deleteWidget = (id: string) => {
+  const deleteWidget = useCallback((id: string) => {
     setWidgets((prev) => prev.filter((widget) => widget.id !== id));
-  };
+  }, []);
 
-  const duplicateWidget = (id: string) => {
-    const widget = widgets.find((w) => w.id === id);
-    if (widget) {
-      const newWidget = {
-        ...widget,
-        name: `${widget.name} (복사본)`,
-        position: {
-          ...widget.position,
-          x: widget.position.x + 1,
-          y: widget.position.y + 1,
-        },
-      };
-      delete (newWidget as any).id; // Remove id so addWidget can generate new one
-      addWidget(newWidget);
-    }
-  };
+  const duplicateWidget = useCallback(
+    (id: string) => {
+      const widget = widgets.find((w) => w.id === id);
+      if (widget) {
+        const newWidget = {
+          ...widget,
+          name: `${widget.name} (복사본)`,
+          position: {
+            ...widget.position,
+            x: widget.position.x + 1,
+            y: widget.position.y + 1,
+          },
+        };
+        delete (newWidget as any).id; // Remove id so addWidget can generate new one
+        addWidget(newWidget);
+      }
+    },
+    [widgets, addWidget]
+  );
 
-  const resetLayout = () => {
+  const resetLayout = useCallback(() => {
     setWidgets(defaultWidgets);
     localStorage.removeItem("dashboard-layout");
-  };
+  }, []);
 
-  const getAvailableWidgetTypes = () => availableWidgetTypes;
+  const getAvailableWidgetTypes = useCallback(() => availableWidgetTypes, []);
 
-  const ensureEventLogWidgets = () => {
+  const ensureEventLogWidgets = useCallback(() => {
     const hasEventTable = widgets.some(
       (widget) => widget.type === "eventtable" && widget.visible
     );
@@ -270,23 +280,37 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         setWidgets((prev) => [...prev, ...newWidgets]);
       }
     }
-  };
+  }, [widgets]);
+
+  const contextValue = useMemo(
+    () => ({
+      widgets,
+      toggleWidget,
+      updateWidgetPosition,
+      updateWidgetConfig,
+      addWidget,
+      deleteWidget,
+      duplicateWidget,
+      resetLayout,
+      getAvailableWidgetTypes,
+      ensureEventLogWidgets,
+    }),
+    [
+      widgets,
+      toggleWidget,
+      updateWidgetPosition,
+      updateWidgetConfig,
+      addWidget,
+      deleteWidget,
+      duplicateWidget,
+      resetLayout,
+      getAvailableWidgetTypes,
+      ensureEventLogWidgets,
+    ]
+  );
 
   return (
-    <DashboardContext.Provider
-      value={{
-        widgets,
-        toggleWidget,
-        updateWidgetPosition,
-        updateWidgetConfig,
-        addWidget,
-        deleteWidget,
-        duplicateWidget,
-        resetLayout,
-        getAvailableWidgetTypes,
-        ensureEventLogWidgets,
-      }}
-    >
+    <DashboardContext.Provider value={contextValue}>
       {children}
     </DashboardContext.Provider>
   );

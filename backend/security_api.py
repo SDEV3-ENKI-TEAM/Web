@@ -920,6 +920,20 @@ async def get_trace_stats():
         print(f"/api/trace-stats 오류: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/event-type/{event_id}")
+async def get_event_type_korean(event_id: str):
+    """Sysmon Event ID를 한국어 이벤트 타입으로 변환합니다."""
+    try:
+        event_type = opensearch_analyzer.get_sysmon_event_type_korean(event_id)
+        return {
+            "event_id": event_id,
+            "event_type": event_type,
+            "status": "success"
+        }
+    except Exception as e:
+        print(f"이벤트 타입 변환 오류: {e}")
+        raise HTTPException(status_code=500, detail=f"이벤트 타입 변환 오류: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8003) 
