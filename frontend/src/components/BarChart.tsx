@@ -32,15 +32,7 @@ export default function BarChart({
   title = "사용자별 이벤트 분포",
   color = "#4a5568",
 }: BarChartProps) {
-  const mockData = [
-    { user: "Joe Fam", anomalyCount: 2, normalCount: 0 },
-    { user: "JuserB", anomalyCount: 0, normalCount: 2 },
-    { user: "John Roe", anomalyCount: 0, normalCount: 1 },
-    { user: "Joe Yun", anomalyCount: 1, normalCount: 0 },
-    { user: "Tim Wan", anomalyCount: 2, normalCount: 0 },
-  ];
-
-  const chartData = data || mockData;
+  const chartData = data || [];
 
   const config = {
     labels: chartData.map((item) => item.user),
@@ -135,9 +127,15 @@ export default function BarChart({
       transition={{ duration: 0.5, delay: 0.4 }}
       className="card h-full flex flex-col"
     >
-      <div className="flex-1 min-h-0 p-4">
-        <Bar data={config} options={options} />
-      </div>
+      {chartData.length === 0 ? (
+        <div className="flex items-center justify-center h-72 text-slate-400 font-mono text-sm">
+          데이터를 불러오는 중...
+        </div>
+      ) : (
+        <div className="flex-1 min-h-0 p-4">
+          <Bar data={config} options={options} />
+        </div>
+      )}
     </motion.div>
   );
 }

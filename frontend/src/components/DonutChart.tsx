@@ -24,17 +24,17 @@ interface DonutStats {
 }
 
 export default function DonutChart({
-  normalCount = 4,
-  anomalyCount = 10,
+  normalCount = 0,
+  anomalyCount = 0,
   title = "이벤트 분포",
 }: DonutChartProps) {
   const [stats, setStats] = useState<DonutStats>({
-    normalCount,
-    anomalyCount,
-    total: normalCount + anomalyCount,
-    normalPercentage: (normalCount / (normalCount + anomalyCount)) * 100,
-    anomalyPercentage: (anomalyCount / (normalCount + anomalyCount)) * 100,
-    processed: normalCount + anomalyCount,
+    normalCount: 0,
+    anomalyCount: 0,
+    total: 0,
+    normalPercentage: 0,
+    anomalyPercentage: 0,
+    processed: 0,
     failed: 0,
   });
   const [loading, setLoading] = useState(true);
@@ -150,65 +150,77 @@ export default function DonutChart({
       transition={{ duration: 0.5, delay: 0.3 }}
       className="h-full flex flex-col bg-transparent font-mono"
     >
-      <div className="relative flex-1 min-h-0 mb-4 flex items-center justify-center no-drag">
-        <div className="w-full h-full relative">
-          <Doughnut data={data} options={options} />
+      {stats.total === 0 ? (
+        <div className="flex items-center justify-center h-full text-slate-400 font-mono text-sm">
+          위험 요소 분석 중...
+        </div>
+      ) : (
+        <>
+          <div className="relative flex-1 min-h-0 mb-4 flex items-center justify-center no-drag">
+            <div className="w-full h-full relative">
+              <Doughnut data={data} options={options} />
 
-          {/* Center text */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="text-center">
-              <div className="font-bold text-red-400 text-xl font-mono">
-                {stats.anomalyPercentage.toFixed(1)}%
+              {/* Center text */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="text-center">
+                  <div className="font-bold text-red-400 text-xl font-mono">
+                    {stats.anomalyPercentage.toFixed(1)}%
+                  </div>
+                  <div className="text-slate-400 text-xs font-mono uppercase tracking-wider">
+                    위험도 비율
+                  </div>
+                </div>
               </div>
-              <div className="text-slate-400 text-xs font-mono uppercase tracking-wider">
-                위험도 비율
+            </div>
+          </div>
+
+          {/* Terminal-style summary stats */}
+          <div className="flex-shrink-0 no-drag space-y-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-green-500/10 border border-green-500/30 rounded p-3 text-center">
+                <div className="text-green-400 text-lg font-mono font-bold">
+                  {stats.normalCount}
+                </div>
+                <div className="text-green-300 text-xs font-mono uppercase tracking-wide">
+                  정상
+                </div>
+                <div className="text-green-500/70 text-xs font-mono">
+                  {stats.normalPercentage.toFixed(1)}%
+                </div>
+              </div>
+              <div className="bg-red-500/10 border border-red-500/30 rounded p-3 text-center">
+                <div className="text-red-400 text-lg font-mono font-bold">
+                  {stats.anomalyCount}
+                </div>
+                <div className="text-red-300 text-xs font-mono uppercase tracking-wide">
+                  위험
+                </div>
+                <div className="text-red-500/70 text-xs font-mono">
+                  {stats.anomalyPercentage.toFixed(1)}%
+                </div>
+              </div>
+            </div>
+
+            {/* Terminal info line */}
+            <div className="bg-slate-800/30 border border-slate-700/50 rounded px-3 py-2">
+              <div className="text-slate-400 text-xs font-mono text-center">
+                전체 이벤트:{" "}
+                <span className="text-blue-400 font-semibold">
+                  {stats.total}
+                </span>{" "}
+                | 처리됨:{" "}
+                <span className="text-green-400 font-semibold">
+                  {stats.processed}
+                </span>{" "}
+                | 실패:{" "}
+                <span className="text-red-400 font-semibold">
+                  {stats.failed}
+                </span>
               </div>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Terminal-style summary stats */}
-      <div className="flex-shrink-0 no-drag space-y-2">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-green-500/10 border border-green-500/30 rounded p-3 text-center">
-            <div className="text-green-400 text-lg font-mono font-bold">
-              {stats.normalCount}
-            </div>
-            <div className="text-green-300 text-xs font-mono uppercase tracking-wide">
-              정상
-            </div>
-            <div className="text-green-500/70 text-xs font-mono">
-              {stats.normalPercentage.toFixed(1)}%
-            </div>
-          </div>
-          <div className="bg-red-500/10 border border-red-500/30 rounded p-3 text-center">
-            <div className="text-red-400 text-lg font-mono font-bold">
-              {stats.anomalyCount}
-            </div>
-            <div className="text-red-300 text-xs font-mono uppercase tracking-wide">
-              위험
-            </div>
-            <div className="text-red-500/70 text-xs font-mono">
-              {stats.anomalyPercentage.toFixed(1)}%
-            </div>
-          </div>
-        </div>
-
-        {/* Terminal info line */}
-        <div className="bg-slate-800/30 border border-slate-700/50 rounded px-3 py-2">
-          <div className="text-slate-400 text-xs font-mono text-center">
-            전체 이벤트:{" "}
-            <span className="text-blue-400 font-semibold">{stats.total}</span> |
-            처리됨:{" "}
-            <span className="text-green-400 font-semibold">
-              {stats.processed}
-            </span>{" "}
-            | 실패:{" "}
-            <span className="text-red-400 font-semibold">{stats.failed}</span>
-          </div>
-        </div>
-      </div>
+        </>
+      )}
     </motion.div>
   );
 }

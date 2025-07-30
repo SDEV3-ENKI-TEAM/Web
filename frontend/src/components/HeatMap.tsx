@@ -12,15 +12,7 @@ export default function HeatMap({
   title = "시간대별 활동 패턴",
   data,
 }: HeatMapProps) {
-  const mockData = Array.from({ length: 7 }, (_, day) =>
-    Array.from({ length: 24 }, (_, hour) => ({
-      hour,
-      day,
-      value: Math.random() * 10,
-    }))
-  ).flat();
-
-  const heatmapData = data || mockData;
+  const heatmapData = data || [];
   const days = ["일", "월", "화", "수", "목", "금", "토"];
   const hours = Array.from({ length: 24 }, (_, i) => i);
 
@@ -46,61 +38,69 @@ export default function HeatMap({
       transition={{ duration: 0.5, delay: 0.5 }}
       className="card h-full overflow-hidden flex flex-col"
     >
-      <div className="p-2 flex-1 min-h-0 flex flex-col">
-        <h3 className="text-sm font-semibold text-app-text mb-2 flex-shrink-0">
-          {title}
-        </h3>
+      {heatmapData.length === 0 ? (
+        <div className="flex items-center justify-center h-72 text-slate-400 font-mono text-sm">
+          히트맵 데이터를 불러오는 중...
+        </div>
+      ) : (
+        <div className="p-2 flex-1 min-h-0 flex flex-col">
+          <h3 className="text-sm font-semibold text-app-text mb-2 flex-shrink-0">
+            {title}
+          </h3>
 
-        <div className="overflow-auto flex-1 min-h-0">
-          <div className="grid grid-cols-25 gap-1 text-xs min-w-max">
-            {/* Header row with hours */}
-            <div></div>
-            {hours.map((hour) => (
-              <div
-                key={hour}
-                className="text-center text-app-secondary font-medium p-1 text-xs"
-              >
-                {hour}
-              </div>
-            ))}
-
-            {/* Data rows */}
-            {days.map((day, dayIndex) => (
-              <React.Fragment key={dayIndex}>
-                <div className="text-app-secondary font-medium p-1 flex items-center text-xs">
-                  {day}
+          <div className="overflow-auto flex-1 min-h-0">
+            <div className="grid grid-cols-25 gap-1 text-xs min-w-max">
+              {/* Header row with hours */}
+              <div></div>
+              {hours.map((hour) => (
+                <div
+                  key={hour}
+                  className="text-center text-app-secondary font-medium p-1 text-xs"
+                >
+                  {hour}
                 </div>
-                {hours.map((hour) => {
-                  const value = getValueForCell(dayIndex, hour);
-                  return (
-                    <div
-                      key={`${dayIndex}-${hour}`}
-                      className={`aspect-square rounded ${getIntensityColor(
-                        value
-                      )} border border-app-accent-200 cursor-pointer hover:scale-110 transition-transform min-w-4 min-h-4`}
-                      title={`${day}요일 ${hour}시: ${value.toFixed(1)} 이벤트`}
-                    />
-                  );
-                })}
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
+              ))}
 
-        {/* Legend */}
-        <div className="mt-2 flex items-center justify-between text-xs text-app-secondary flex-shrink-0">
-          <span>적음</span>
-          <div className="flex space-x-1">
-            <div className="w-2 h-2 bg-app-accent-100 rounded"></div>
-            <div className="w-2 h-2 bg-blue-100 rounded"></div>
-            <div className="w-2 h-2 bg-blue-200 rounded"></div>
-            <div className="w-2 h-2 bg-blue-300 rounded"></div>
-            <div className="w-2 h-2 bg-blue-400 rounded"></div>
-            <div className="w-2 h-2 bg-blue-500 rounded"></div>
+              {/* Data rows */}
+              {days.map((day, dayIndex) => (
+                <React.Fragment key={dayIndex}>
+                  <div className="text-app-secondary font-medium p-1 flex items-center text-xs">
+                    {day}
+                  </div>
+                  {hours.map((hour) => {
+                    const value = getValueForCell(dayIndex, hour);
+                    return (
+                      <div
+                        key={`${dayIndex}-${hour}`}
+                        className={`aspect-square rounded ${getIntensityColor(
+                          value
+                        )} border border-app-accent-200 cursor-pointer hover:scale-110 transition-transform min-w-4 min-h-4`}
+                        title={`${day}요일 ${hour}시: ${value.toFixed(
+                          1
+                        )} 이벤트`}
+                      />
+                    );
+                  })}
+                </React.Fragment>
+              ))}
+            </div>
           </div>
-          <span>많음</span>
+
+          {/* Legend */}
+          <div className="mt-2 flex items-center justify-between text-xs text-app-secondary flex-shrink-0">
+            <span>적음</span>
+            <div className="flex space-x-1">
+              <div className="w-2 h-2 bg-app-accent-100 rounded"></div>
+              <div className="w-2 h-2 bg-blue-100 rounded"></div>
+              <div className="w-2 h-2 bg-blue-200 rounded"></div>
+              <div className="w-2 h-2 bg-blue-300 rounded"></div>
+              <div className="w-2 h-2 bg-blue-400 rounded"></div>
+              <div className="w-2 h-2 bg-blue-500 rounded"></div>
+            </div>
+            <span>많음</span>
+          </div>
         </div>
-      </div>
+      )}
     </motion.div>
   );
 }
