@@ -73,41 +73,7 @@ class OpenSearchAnalyzer:
             print(f"Jaeger 스팬 검색 오류: {e}")
             return {"hits": [], "total": 0}
     
-    def get_sigma_alerts(self, limit: int = 50) -> Dict:
-        """Sigma 룰 매칭된 스팬을 조회합니다."""
-        query = {
-            "query": {
-                "bool": {
-                    "should": [
-                        {"exists": {"field": "tags.sigma.alert"}},
-                        {"term": {"tags.error": True}},
-                        {"nested": {
-                            "path": "tags",
-                            "query": {
-                                "bool": {
-                                    "must": [
-                                        {"term": {"tags.key": "sigma.alert"}},
-                                        {"exists": {"field": "tags.value"}}
-                                    ]
-                                }
-                            }
-                        }}
-                    ]
-                }
-            },
-            "sort": [{"startTime": {"order": "desc"}}],
-            "size": limit
-        }
-        
-        try:
-            response = self.client.search(index="jaeger-span-*", body=query)
-            return {
-                "hits": response['hits']['hits'],
-                "total": response['hits']['total']['value'] if 'total' in response['hits'] else len(response['hits']['hits'])
-            }
-        except Exception as e:
-            print(f"Sigma 알럿 검색 오류: {e}")
-            return {"hits": [], "total": 0}
+
     
     def extract_process_from_operation_name(self, operation_name: str) -> str:
         """operationName에서 프로세스 정보를 추출합니다."""
@@ -170,7 +136,6 @@ class OpenSearchAnalyzer:
 
         cleaned_name = raw_name if raw_name else 'unknown'
         
-        print(f"   🧹 최종 정리된 이름: '{cleaned_name}'")
         return cleaned_name
 
     def convert_korean_timestamp(self, korean_time: str) -> str:
@@ -326,65 +291,6 @@ class OpenSearchAnalyzer:
         for i, span in enumerate(all_spans):
             source = span['_source']
             events.append(source)
-        print(f"[DEBUG] 반환되는 이벤트 개수: {len(events)}")
         return events
     
-    def get_event_statistics(self) -> Dict:
-        """이벤트 통계를 가져옵니다."""
-        try:
-            total_query = {"query": {"match_all": {}}}
-            total_response = self.client.count(index="jaeger-span-*", body=total_query)
-    
-            alert_query = {
-                "query": {
-                    "bool": {
-                        "should": [
-                            {"exists": {"field": "tags.sigma.alert"}},
-                            {"term": {"tags.error": True}}
-                        ]
-                    }
-                }
-            }
-            alert_response = self.client.count(index="jaeger-span-*", body=alert_query)
-
-            agg_query = {
-                "aggs": {
-                    "event_types": {
-                        "terms": {
-                            "field": "operationName.keyword",
-                            "size": 20
-                        }
-                    },
-                    "process_images": {
-                        "nested": {
-                            "path": "tags"
-                        },
-                        "aggs": {
-                            "images": {
-                                "terms": {
-                                    "field": "tags.value.keyword",
-                                    "size": 10
-                                }
-                            }
-                        }
-                    }
-                },
-                "size": 0
-            }
-            
-            agg_response = self.client.search(index="jaeger-span-*", body=agg_query)
-            
-            return {
-                "total_spans": total_response['count'],
-                "total_alerts": alert_response['count'],
-                "event_types": agg_response.get('aggregations', {}).get('event_types', {}).get('buckets', []),
-                "process_images": agg_response.get('aggregations', {}).get('process_images', {}).get('images', {}).get('buckets', [])
-            }
-        except Exception as e:
-            print(f"통계 조회 오류: {e}")
-            return {
-                "total_spans": 0,
-                "total_alerts": 0,
-                "event_types": [],
-                "process_images": []
-            } 
+ 
