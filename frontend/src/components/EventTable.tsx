@@ -50,7 +50,6 @@ export default function EventTable({
     onEventSelect(event);
   };
 
-  // 무한스크롤 핸들러
   const handleScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
@@ -70,7 +69,6 @@ export default function EventTable({
     const aValue = a[sortField as keyof Event];
     const bValue = b[sortField as keyof Event];
 
-    // undefined 체크
     if (aValue === undefined && bValue === undefined) return 0;
     if (aValue === undefined) return 1;
     if (bValue === undefined) return -1;

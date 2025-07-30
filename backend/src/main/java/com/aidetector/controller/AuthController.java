@@ -66,7 +66,7 @@ public class AuthController {
                     .body(new MessageResponse("Error: Username is already taken!"));
         }
 
-        // Create new user's account
+
         User user = new User(signUpRequest.getUsername(),
                 encoder.encode(signUpRequest.getPassword()));
 
@@ -77,8 +77,6 @@ public class AuthController {
             roles.add("ROLE_USER");
         } else {
             strRoles.forEach(role -> {
-                // 여기서는 역할을 동적으로 처리하지 않고, 기본 역할만 부여합니다.
-                // 실제 애플리케이션에서는 Role 엔티티를 사용하여 역할을 관리합니다.
                 roles.add("ROLE_USER");
             });
         }

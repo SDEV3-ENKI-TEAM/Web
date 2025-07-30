@@ -7,7 +7,6 @@ export async function GET(
   try {
     const eventId = params.event_id;
 
-    // 백엔드 API 호출
     const response = await fetch(
       `${
         process.env.BACKEND_URL || "http://localhost:8080"

@@ -398,7 +398,6 @@ async def get_node_detail(trace_id: str, node_id: str):
                 "message": f"Trace ID '{trace_id}'를 찾을 수 없습니다."
             }
         
-        # node_id를 인덱스로 사용하여 해당 이벤트 찾기
         try:
             node_index = int(node_id)
             if node_index < 0 or node_index >= len(events):
@@ -410,7 +409,6 @@ async def get_node_detail(trace_id: str, node_id: str):
             
             target_event = events[node_index]
             
-            # 이벤트를 transform_jaeger_span_to_event 형식으로 변환
             transformed_event = opensearch_analyzer.transform_jaeger_span_to_event({
                 "_source": target_event
             })
@@ -462,12 +460,12 @@ async def get_trace_summary(trace_id: str):
                 "ip": "192.168.1.100",
                 "os": "Windows 10"
             },
-            "events": [],  # 이벤트는 빈 배열로 시작
+            "events": [], 
             "timestamp": first_event.get('timestamp', ''),
             "label": "이상" if has_any_alert else "정상",
             "severity": "high" if has_any_alert else "low",
-            "total_events": len(events),  # 총 이벤트 개수
-            "alert_count": len(alert_events)  # 알림 이벤트 개수
+            "total_events": len(events),
+            "alert_count": len(alert_events)
         }
         
         return {
@@ -553,6 +551,29 @@ async def get_alarm_traces(offset: int = 0, limit: int = 50):
         response = opensearch_analyzer.client.search(index="jaeger-span-*", body=query)                                               
         alarms = []
         seen_trace_ids = set()
+        trace_span_counts = {}
+        
+        unique_trace_ids = list(set(span['_source'].get("traceID", "") for span in response['hits']['hits'] if span['_source'].get("traceID", "")))
+        
+        if unique_trace_ids:
+            count_query = {
+                "query": {"terms": {"traceID": unique_trace_ids}},
+                "size": 0,
+                "aggs": {
+                    "trace_counts": {
+                        "terms": {
+                            "field": "traceID",
+                            "size": len(unique_trace_ids)
+                        }
+                    }
+                }
+            }
+            count_response = opensearch_analyzer.client.search(index="jaeger-span-*", body=count_query)
+            
+            # aggregation 결과를 딕셔너리로 변환
+            for bucket in count_response['aggregations']['trace_counts']['buckets']:
+                trace_span_counts[bucket['key']] = bucket['doc_count']
+        
         for span in response['hits']['hits']:                     
             src = span['_source']
             trace_id = src.get("traceID", "")
@@ -566,7 +587,10 @@ async def get_alarm_traces(offset: int = 0, limit: int = 50):
                 "summary": src.get("operationName") or "-",
                 "host": tag.get("User", "-"),
                 "os": tag.get("Product", "-"),
-                "checked": get_alarm_checked_status(trace_id)
+                "checked": get_alarm_checked_status(trace_id),
+                "sigma_alert": tag.get("sigma@alert", ""),
+                "span_count": trace_span_counts.get(trace_id, 0),
+                "ai_summary": "테스트 요약"
             })
         total = len(alarms)
         paged = alarms[offset:offset+limit]

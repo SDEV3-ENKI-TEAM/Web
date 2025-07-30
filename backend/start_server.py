@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import uvicorn
 from security_api import app
 
@@ -6,7 +5,7 @@ if __name__ == "__main__":
     print("EventAgent 백엔드 API 서버 시작...")
     print("OpenSearch 연결 테스트...")
     
-    # OpenSearch 연결 테스트
+
     try:
         from opensearch_analyzer import OpenSearchAnalyzer
         analyzer = OpenSearchAnalyzer()

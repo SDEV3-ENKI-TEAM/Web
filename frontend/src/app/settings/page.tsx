@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import Sidebar from "@/components/Sidebar";
 
-// 타입 정의
 interface SettingOption {
   value: string;
   label: string;

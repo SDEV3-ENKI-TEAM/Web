@@ -163,7 +163,9 @@ function AlarmDetailContent() {
 
   const onLoad = useCallback((inst: any) => {
     reactFlowInstance.current = inst;
-    inst.fitView();
+    setTimeout(() => {
+      inst.fitView({ padding: 0.1, includeHiddenNodes: false });
+    }, 100);
   }, []);
 
   const onCloseModal = useCallback(() => {
@@ -626,7 +628,7 @@ function AlarmDetailContent() {
               zoomOnScroll
               zoomOnPinch
               zoomOnDoubleClick
-              fitView={false}
+              fitView={true}
               onLoad={onLoad}
               style={{
                 backgroundColor: "transparent",

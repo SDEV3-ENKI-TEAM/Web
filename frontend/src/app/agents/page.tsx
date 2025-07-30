@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/context/AuthContext";
 
-// Mock data for agents
 const mockAgentData = {
   overview: {
     totalAgents: 247,

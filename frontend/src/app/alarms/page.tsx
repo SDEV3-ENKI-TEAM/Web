@@ -12,6 +12,9 @@ interface Alarm {
   host: string;
   os: string;
   checked: boolean;
+  sigma_alert?: string;
+  span_count?: number;
+  ai_summary?: string;
 }
 
 function timeAgo(dateNum: number) {
@@ -24,11 +27,6 @@ function timeAgo(dateNum: number) {
   if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
   return `${Math.floor(diff / 86400)}일 전`;
 }
-
-const statusBadge = {
-  checked: "bg-green-500/10 text-green-500 border-green-500/20",
-  unchecked: "bg-red-500/10 text-red-500 border-red-500/20",
-};
 
 export default function AlarmsPage() {
   const [alarms, setAlarms] = useState<Alarm[]>([]);
@@ -208,7 +206,7 @@ export default function AlarmsPage() {
             </select>
           </div>
         </div>
-        <div className="overflow-x-auto rounded-lg border border-slate-800 bg-slate-900/80">
+        <div className="rounded-lg border border-slate-800 bg-slate-900/80 p-6">
           {loading ? (
             <div className="text-center text-slate-400 py-10 text-lg font-mono">
               알람 데이터를 불러오는 중...
@@ -217,147 +215,145 @@ export default function AlarmsPage() {
             <div className="text-center text-red-400 py-10 text-lg font-mono">
               {error}
             </div>
+          ) : filteredAlarms.length === 0 ? (
+            <div className="text-center text-slate-500 py-10 text-lg font-mono">
+              알람이 없습니다.
+            </div>
           ) : (
-            <>
-              <table className="min-w-full text-sm font-mono">
-                <thead>
-                  <tr className="bg-slate-800 text-slate-400">
-                    <th
-                      className={`p-3 font-semibold text-center cursor-pointer select-none ${
-                        sortBy === "status" ? "text-blue-400" : ""
-                      }`}
-                      onClick={() => handleSort("status")}
-                    >
-                      상태{" "}
-                      {sortBy === "status"
-                        ? sortDir === "asc"
-                          ? "▲"
-                          : "▼"
-                        : ""}
-                    </th>
-                    <th
-                      className={`p-3 font-semibold text-center cursor-pointer select-none ${
-                        sortBy === "trace_id" ? "text-blue-400" : ""
-                      }`}
-                      onClick={() => handleSort("trace_id")}
-                    >
-                      Trace ID{" "}
-                      {sortBy === "trace_id"
-                        ? sortDir === "asc"
-                          ? "▲"
-                          : "▼"
-                        : ""}
-                    </th>
-                    <th
-                      className={`p-3 font-semibold text-left cursor-pointer select-none ${
-                        sortBy === "summary" ? "text-blue-400" : ""
-                      }`}
-                      onClick={() => handleSort("summary")}
-                    >
-                      요약{" "}
-                      {sortBy === "summary"
-                        ? sortDir === "asc"
-                          ? "▲"
-                          : "▼"
-                        : ""}
-                    </th>
-                    <th className="p-3 font-semibold text-center">호스트명</th>
-                    <th className="p-3 font-semibold text-center">OS</th>
-                    <th
-                      className={`p-3 font-semibold text-center cursor-pointer select-none ${
-                        sortBy === "detected_at" ? "text-blue-400" : ""
-                      }`}
-                      onClick={() => handleSort("detected_at")}
-                    >
-                      탐지 시각{" "}
-                      {sortBy === "detected_at"
-                        ? sortDir === "asc"
-                          ? "▲"
-                          : "▼"
-                        : ""}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredAlarms.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className="text-center text-slate-500 py-10"
-                      >
-                        알람이 없습니다.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredAlarms.map((alarm, idx) => (
-                      <tr
-                        key={`${alarm.trace_id}-${alarm.detected_at}-${idx}`}
-                        className={`border-b border-slate-800 cursor-pointer hover:bg-slate-800/60 transition-all`}
-                        onClick={() => router.push(`/alarms/${alarm.trace_id}`)}
-                      >
-                        <td
-                          className="p-3 text-center"
+            <div className="grid grid-cols-1 gap-4">
+              {filteredAlarms.map((alarm, idx) => (
+                <motion.div
+                  key={`${alarm.trace_id}-${alarm.detected_at}-${idx}`}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.1 }}
+                  className="bg-slate-800/60 border border-slate-700/50 rounded-lg p-6 cursor-pointer hover:bg-slate-800/80 hover:border-slate-600/50 transition-all duration-200 hover:shadow-lg hover:shadow-slate-900/50"
+                  onClick={() => router.push(`/alarms/${alarm.trace_id}`)}
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-slate-100 mb-2">
+                        {alarm.sigma_alert || alarm.summary}
+                      </h3>
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`px-3 py-1 rounded-full border text-xs font-medium select-none cursor-pointer ${
+                            alarm.checked
+                              ? "bg-green-500/10 text-green-400 border-green-500/30"
+                              : "bg-red-500/10 text-red-400 border-red-500/30"
+                          }`}
                           onClick={(e) => {
                             e.stopPropagation();
                             handleCheck(alarm.trace_id);
                           }}
                         >
-                          <span
-                            className={`px-2 py-1 rounded border text-xs select-none cursor-pointer ${
-                              alarm.checked
-                                ? statusBadge.checked
-                                : statusBadge.unchecked
-                            }`}
-                          >
-                            {alarm.checked ? "확인됨" : "미확인"}
-                          </span>
-                        </td>
-                        <td className="p-3 text-center text-xs text-cyan-400 break-all">
-                          {alarm.trace_id}
-                        </td>
-                        <td className="p-3 text-left text-slate-100">
-                          {alarm.summary}
-                        </td>
-                        <td className="p-3 text-center text-slate-200">
-                          {alarm.host}
-                        </td>
-                        <td className="p-3 text-center text-slate-200">
-                          {alarm.os}
-                        </td>
-                        <td className="p-3 text-center text-slate-400">
-                          {timeAgo(alarm.detected_at)}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-              <div className="flex justify-center items-center gap-2 py-6">
-                {pageNumbers.map((num, idx) =>
-                  num === "..." ? (
-                    <span
-                      key={`ellipsis-${idx}`}
-                      className="px-2 text-slate-500"
-                    >
-                      ...
+                          {alarm.checked ? "확인됨" : "미확인"}
+                        </span>
+                        <span className="px-3 py-1 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/30 text-xs font-medium">
+                          high
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-xs text-slate-400 font-mono">
+                      {timeAgo(alarm.detected_at)}
                     </span>
-                  ) : (
-                    <button
-                      key={`${num}-${idx}`}
-                      onClick={() => setPage(Number(num))}
-                      className={`px-3 py-1 rounded border text-sm font-mono transition-all ${
-                        page === num
-                          ? "bg-blue-500/30 border-blue-500 text-blue-200 font-bold"
-                          : "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
-                      }`}
-                      disabled={page === num}
-                    >
-                      {num}
-                    </button>
-                  )
-                )}
-              </div>
-            </>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <div className="text-xs text-slate-400 mb-1">제품</div>
+                      <div className="flex items-center gap-2">
+                        {alarm.os.toLowerCase().includes("windows") ? (
+                          <img
+                            src="/windows.webp"
+                            alt="Windows"
+                            className="w-4 h-4 object-contain"
+                          />
+                        ) : alarm.os.toLowerCase().includes("linux") ? (
+                          <img
+                            src="/linux.png"
+                            alt="Linux"
+                            className="w-4 h-4 object-contain"
+                          />
+                        ) : null}
+                        <span className="text-sm text-slate-200 font-mono">
+                          {alarm.os.toLowerCase().includes("windows")
+                            ? "windows"
+                            : alarm.os.toLowerCase().includes("linux")
+                            ? "linux"
+                            : alarm.os}
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-400 mb-1">
+                        Span 개수
+                      </div>
+                      <div className="text-sm text-slate-200 font-mono">
+                        {alarm.span_count || 0}개
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-400 mb-1">
+                        호스트명
+                      </div>
+                      <div className="text-sm text-slate-200 font-mono truncate">
+                        {alarm.host}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-400 mb-1">
+                        Trace ID
+                      </div>
+                      <div className="text-xs text-cyan-400 break-all font-mono">
+                        {alarm.trace_id}
+                      </div>
+                    </div>
+                  </div>
+
+                  {alarm.ai_summary && (
+                    <div className="mb-4">
+                      <div className="text-xs text-slate-400 mb-1">AI 요약</div>
+                      <div className="text-sm text-slate-200 bg-slate-700/30 rounded p-3 border border-slate-600/30">
+                        {alarm.ai_summary}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
+                    <span className="px-2 py-1 rounded-full bg-slate-700/50 text-slate-300 text-xs font-mono">
+                      behavior.process_creation
+                    </span>
+                    <span className="px-2 py-1 rounded-full bg-slate-700/50 text-slate-300 text-xs font-mono">
+                      actor.suspicious
+                    </span>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-center items-center gap-2 py-6">
+          {pageNumbers.map((num, idx) =>
+            num === "..." ? (
+              <span key={`ellipsis-${idx}`} className="px-2 text-slate-500">
+                ...
+              </span>
+            ) : (
+              <button
+                key={`${num}-${idx}`}
+                onClick={() => setPage(Number(num))}
+                className={`px-3 py-1 rounded border text-sm font-mono transition-all ${
+                  page === num
+                    ? "bg-blue-500/30 border-blue-500 text-blue-200 font-bold"
+                    : "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
+                }`}
+                disabled={page === num}
+              >
+                {num}
+              </button>
+            )
           )}
         </div>
       </div>

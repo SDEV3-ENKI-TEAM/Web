@@ -29,11 +29,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Load from localStorage on initial load
     const storedUser = localStorage.getItem("user");
     const storedToken = localStorage.getItem("token");
 
-    // 토큰과 사용자 정보가 모두 존재하고 유효한 경우에만 로그인 상태로 설정
     if (
       storedUser &&
       storedToken &&
@@ -46,7 +44,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setToken(storedToken);
       setIsLoggedIn(true);
     } else {
-      // 유효하지 않은 경우 저장소 정리
       localStorage.removeItem("user");
       localStorage.removeItem("token");
     }
@@ -65,7 +62,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       localStorage.setItem("user", response.username);
       localStorage.setItem("token", response.token);
     } catch (error) {
-      // 로그인 실패 시 상태 초기화
       setCurrentUser(null);
       setToken(null);
       setIsLoggedIn(false);
