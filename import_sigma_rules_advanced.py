@@ -1,16 +1,3 @@
-#!/usr/bin/env python3
-"""
-Sigma 룰 파일들을 MongoDB에 저장하는 고급 스크립트
-
-사용법:
-    python import_sigma_rules_advanced.py --dir rules --dry-run
-    python import_sigma_rules_advanced.py --clear-collection
-    python import_sigma_rules_advanced.py --help
-
-필요한 패키지:
-    pip install pymongo pyyaml python-dotenv tqdm tenacity
-"""
-
 import os
 import yaml
 import glob
@@ -43,16 +30,6 @@ class SigmaRuleImporterAdvanced:
                  db_name: str = None, 
                  collection_name: str = None,
                  bulk_size: int = 100):
-        """
-        Sigma 룰 임포터 초기화 (고급 버전)
-        
-        Args:
-            mongo_uri: MongoDB 연결 URI (환경변수에서 가져옴)
-            db_name: 데이터베이스 이름 (환경변수에서 가져옴)
-            collection_name: 컬렉션 이름 (환경변수에서 가져옴)
-            bulk_size: Bulk 연산 배치 크기
-        """
-        # 환경변수에서 설정 가져오기
         self.mongo_uri = mongo_uri or os.getenv('MONGODB_URI', 'mongodb://localhost:27017')
         self.db_name = db_name or os.getenv('MONGODB_DB', 'security')
         self.collection_name = collection_name or os.getenv('MONGODB_COLLECTION', 'rules')
@@ -67,24 +44,20 @@ class SigmaRuleImporterAdvanced:
         self.db = self.client[self.db_name]
         self.collection = self.db[self.collection_name]
         
-        # 인덱스 생성 (sigma_id가 고유해야 함)
         self.collection.create_index("sigma_id", unique=True)
         logger.info("MongoDB 인덱스 생성 완료")
         
     def calculate_severity_score(self, level: str) -> int:
         """
         level을 기반으로 severity_score 계산
-        
-        Args:
-            level: Sigma 룰의 level (high, medium, low)
-            
-        Returns:
-            severity_score: 90, 60, 30 중 하나
         """
         level_mapping = {
-            "high": 90,
+            "critical": 100,
+            "high": 80,
             "medium": 60,
-            "low": 30
+            "low": 40,
+            "informational": 20,
+            "warning": 10
         }
         return level_mapping.get(level.lower(), 30)
     
@@ -100,17 +73,14 @@ class SigmaRuleImporterAdvanced:
             추출된 룰 데이터 또는 None (유효하지 않은 경우)
         """
         try:
-            # 필수 필드 확인
             if not yaml_content.get('title') or not yaml_content.get('id'):
                 logger.warning(f"필수 필드 누락: {file_path}")
                 return None
             
-            # deprecated 룰 필터링
             if yaml_content.get('status') == 'deprecated':
                 logger.info(f"스킵(Deprecated): {file_path}")
                 return None
-            
-            # level 기본값 설정
+
             level = yaml_content.get('level', 'low')
             
             rule_data = {
@@ -123,10 +93,9 @@ class SigmaRuleImporterAdvanced:
                 'falsepositives': yaml_content.get('falsepositives', []),
                 'level': level,
                 'severity_score': self.calculate_severity_score(level),
-                'rule_id': Path(file_path).stem,  # 파일명 (확장자 제외)
-                'source_file': file_path,  # 원본 파일 경로
+                'rule_id': Path(file_path).stem,
+                'source_file': file_path,
                 'imported_at': self.get_current_timestamp(),
-                # 추가 메타데이터 (datetime.date 객체를 문자열로 변환)
                 'author': yaml_content.get('author', ''),
                 'date': str(yaml_content.get('date', '')) if yaml_content.get('date') else '',
                 'modified': str(yaml_content.get('modified', '')) if yaml_content.get('modified') else '',
@@ -152,20 +121,10 @@ class SigmaRuleImporterAdvanced:
         retry=retry_if_exception_type((WriteError, BulkWriteError))
     )
     def bulk_upsert_rules(self, rules_data: List[Dict[str, Any]]) -> Dict[str, int]:
-        """
-        룰 데이터를 MongoDB에 bulk upsert
-        
-        Args:
-            rules_data: 저장할 룰 데이터 리스트
-            
-        Returns:
-            처리 결과 통계
-        """
         if not rules_data:
             return {"inserted": 0, "updated": 0, "failed": 0}
         
         try:
-            # Bulk 연산 준비
             bulk_operations = []
             for rule_data in rules_data:
                 bulk_operations.append(
@@ -175,8 +134,7 @@ class SigmaRuleImporterAdvanced:
                         upsert=True
                     )
                 )
-            
-            # Bulk 연산 실행
+ 
             result = self.collection.bulk_write(bulk_operations, ordered=False)
             
             stats = {
@@ -196,15 +154,6 @@ class SigmaRuleImporterAdvanced:
             return {"inserted": 0, "updated": 0, "failed": len(rules_data)}
     
     def process_yaml_file(self, file_path: str) -> Dict[str, int]:
-        """
-        단일 YAML 파일 처리 (다중 문서 지원)
-        
-        Args:
-            file_path: 처리할 YAML 파일 경로
-            
-        Returns:
-            처리 결과 통계
-        """
         stats = {"processed": 0, "success": 0, "failed": 0}
         
         try:
@@ -259,23 +208,12 @@ class SigmaRuleImporterAdvanced:
             return False
     
     def import_all_rules(self, rules_dir: str = None, dry_run: bool = False) -> Dict[str, int]:
-        """
-        rules 디렉토리의 모든 YAML 파일을 재귀적으로 처리
-        
-        Args:
-            rules_dir: Sigma 룰 파일들이 있는 디렉토리 (환경변수에서 가져옴)
-            dry_run: 실제 저장하지 않고 시뮬레이션만 실행
-            
-        Returns:
-            처리 결과 통계
-        """
         rules_dir = rules_dir or os.getenv('RULES_DIR', 'rules')
         
         if not os.path.exists(rules_dir):
             logger.error(f"디렉토리를 찾을 수 없음: {rules_dir}")
             return {"total": 0, "success": 0, "failed": 0, "processed": 0}
-        
-        # 모든 .yml 파일을 재귀적으로 찾기
+
         yaml_files = glob.glob(os.path.join(rules_dir, "**/*.yml"), recursive=True)
         yaml_files.extend(glob.glob(os.path.join(rules_dir, "**/*.yaml"), recursive=True))
         
@@ -290,16 +228,14 @@ class SigmaRuleImporterAdvanced:
         
         total_stats = {"total": len(yaml_files), "success": 0, "failed": 0, "processed": 0}
         all_rules_data = []
-        
-        # 진행도 표시와 함께 파일 처리
+
         with tqdm(yaml_files, desc="파일 처리", unit="file") as pbar:
             for file_path in pbar:
                 file_stats = self.process_yaml_file(file_path)
                 total_stats["success"] += file_stats["success"]
                 total_stats["failed"] += file_stats["failed"]
                 total_stats["processed"] += file_stats["processed"]
-                
-                # 성공한 룰 데이터 수집 (dry_run이 아닌 경우)
+
                 if not dry_run and file_stats["success"] > 0:
                     try:
                         with open(file_path, 'r', encoding='utf-8') as file:
@@ -318,12 +254,10 @@ class SigmaRuleImporterAdvanced:
                     '성공': total_stats["success"],
                     '실패': total_stats["failed"]
                 })
-        
-        # Bulk 연산으로 저장 (dry_run이 아닌 경우)
+
         if not dry_run and all_rules_data:
             logger.info(f"총 {len(all_rules_data)}개의 룰을 Bulk 연산으로 저장합니다...")
-            
-            # 배치 단위로 처리
+
             for i in range(0, len(all_rules_data), self.bulk_size):
                 batch = all_rules_data[i:i + self.bulk_size]
                 batch_stats = self.bulk_upsert_rules(batch)
@@ -429,46 +363,38 @@ def parse_arguments():
 def main():
     """메인 함수"""
     args = parse_arguments()
-    
-    # 로깅 레벨 설정
+
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
     logger.info("Sigma 룰 MongoDB 임포트 시작 (고급 버전)...")
     
     try:
-        # 임포터 초기화
         importer = SigmaRuleImporterAdvanced(
             mongo_uri=args.mongo_uri,
             db_name=args.db_name,
             collection_name=args.collection_name,
             bulk_size=args.bulk_size
         )
-        
-        # 컬렉션 초기화 (요청된 경우)
+
         if args.clear_collection:
             if not importer.clear_collection():
                 logger.error("컬렉션 초기화 실패")
                 return
-        
-        # 기존 통계 출력
+
         before_stats = importer.get_collection_stats()
         logger.info(f"임포트 전 통계: {before_stats}")
-        
-        # 기본 디렉토리 설정 (실제 Sigma 룰 경로)
+
         default_rules_dir = args.dir or "EventAgent-main/sigma_matcher/rules/rules"
-        
-        # 모든 룰 임포트
+
         import_stats = importer.import_all_rules(
             rules_dir=default_rules_dir,
             dry_run=args.dry_run
         )
-        
-        # 임포트 후 통계 출력 (dry_run이 아닌 경우)
+
         if not args.dry_run:
             after_stats = importer.get_collection_stats()
-            
-            # 결과 출력
+
             logger.info("\n" + "="*60)
             logger.info("임포트 완료!")
             logger.info(f"총 파일 수: {import_stats['total']}")
@@ -486,8 +412,7 @@ def main():
             logger.info(f"성공: {import_stats['success']}")
             logger.info(f"실패: {import_stats['failed']}")
             logger.info("="*60)
-        
-        # MongoDB 연결 종료
+
         importer.close()
         
     except Exception as e:

@@ -124,14 +124,14 @@ export default function EventTable({
           </div>
           <div className="col-span-3 text-center no-drag">상태</div>
           <div
-            onClick={(e) => handleSortClick(e, "event")}
+            onClick={(e) => handleSortClick(e, "ai_summary")}
             onMouseDown={preventDrag}
             onDragStart={preventDrag}
             onPointerDown={preventDrag}
             className="col-span-4 cursor-pointer hover:text-blue-400 transition-colors flex items-center justify-center gap-1 no-drag text-center"
           >
-            이벤트 유형
-            {sortField === "event" && (
+            AI 요약
+            {sortField === "ai_summary" && (
               <span className="text-blue-400">
                 {sortDirection === "asc" ? "↑" : "↓"}
               </span>
@@ -219,7 +219,7 @@ export default function EventTable({
                   </span>
                 </div>
 
-                {/* Event Type */}
+                {/* AI Summary */}
                 <div
                   className={`col-span-4 font-mono text-center ${
                     selectedEventId === event.id
@@ -227,7 +227,7 @@ export default function EventTable({
                       : "text-slate-300"
                   }`}
                 >
-                  {event.event}
+                  {event.ai_summary || event.event}
                 </div>
               </motion.div>
             ))}

@@ -9,6 +9,7 @@ export interface Event {
   duration?: number;
   traceID?: string;
   operationName?: string;
+  ai_summary?: string;
 }
 
 export interface EventDetail {

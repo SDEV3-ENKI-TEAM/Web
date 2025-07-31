@@ -125,7 +125,7 @@ const ruleNameKorean: { [key: string]: string } = {
   DriverLoad: "드라이버 로드",
   ImageLoad: "이미지 로드",
   ClipboardChange: "클립보드 변경",
-  DNSQuery: "DNS 쿼리",
+  DnsQuery: "DNS 쿼리",
   WmiEventFilter: "WMI 이벤트 필터",
   WmiEventConsumer: "WMI 이벤트 컨슈머",
   WmiConsumerFilter: "WMI 컨슈머 필터",

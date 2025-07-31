@@ -46,7 +46,6 @@ export default function AlarmsPage() {
   const limit = 10;
   const router = useRouter();
 
-  // 필터 상태 추가
   const [severityFilters, setSeverityFilters] = useState<string[]>([]);
   const [dateRange, setDateRange] = useState({
     startDate: "",
@@ -60,14 +59,12 @@ export default function AlarmsPage() {
 
     const fetchAlarms = async () => {
       try {
-        // 알람 데이터 가져오기
         const alarmsRes = await fetch(
           `/api/alarms?offset=${(page - 1) * limit}&limit=${limit}`
         );
         if (!alarmsRes.ok) throw new Error("알람 API 오류");
         const alarmsData = await alarmsRes.json();
 
-        // 위험도 데이터 가져오기
         const severityRes = await fetch("/api/alarms/severity");
         let severityData: Record<string, any> = {};
         if (severityRes.ok) {
@@ -75,7 +72,6 @@ export default function AlarmsPage() {
           severityData = severityResult.severity_data || {};
         }
 
-        // 알람 데이터에 위험도 정보 추가
         const alarmsWithSeverity = (alarmsData.alarms || []).map((a: any) => {
           const alarmSeverity = a.sigma_alert
             ? severityData[a.sigma_alert]
@@ -127,34 +123,20 @@ export default function AlarmsPage() {
 
   const filteredAlarms = sortAlarms(
     alarms.filter((alarm) => {
-      // 검색 필터
       const matchSearch =
         alarm.trace_id.toLowerCase().includes(search.toLowerCase()) ||
         alarm.summary.toLowerCase().includes(search.toLowerCase());
 
-      // 상태 필터
       const matchStatus =
         statusFilter === "all" ||
         (statusFilter === "checked" && alarm.checked) ||
         (statusFilter === "unchecked" && !alarm.checked);
 
-      // 심각도 필터
       const matchSeverity =
         severityFilters.length === 0 ||
         severityFilters.includes(alarm.severity || "low");
 
-      // 날짜 범위 필터
-      const alarmDate = new Date(alarm.detected_at);
-      const startDate = dateRange.startDate
-        ? new Date(dateRange.startDate)
-        : null;
-      const endDate = dateRange.endDate ? new Date(dateRange.endDate) : null;
-
-      const matchDate =
-        (!startDate || alarmDate >= startDate) &&
-        (!endDate || alarmDate <= endDate);
-
-      return matchSearch && matchStatus && matchSeverity && matchDate;
+      return matchSearch && matchStatus && matchSeverity;
     })
   );
 
@@ -199,7 +181,6 @@ export default function AlarmsPage() {
     }
   };
 
-  // 필터 초기화 함수
   const resetFilters = () => {
     setSearch("");
     setStatusFilter("all");
@@ -207,7 +188,6 @@ export default function AlarmsPage() {
     setDateRange({ startDate: "", endDate: "" });
   };
 
-  // 심각도 필터 토글 함수
   const toggleSeverityFilter = (severity: string) => {
     setSeverityFilters((prev) =>
       prev.includes(severity)
@@ -288,15 +268,6 @@ export default function AlarmsPage() {
               </svg>
               필터
             </button>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="border border-slate-700 bg-slate-900 rounded px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 w-32"
-            >
-              <option value="all">전체</option>
-              <option value="unchecked">미확인</option>
-              <option value="checked">확인됨</option>
-            </select>
           </div>
         </div>
 
@@ -354,47 +325,6 @@ export default function AlarmsPage() {
                       </span>
                     </label>
                   ))}
-                </div>
-              </div>
-
-              {/* 날짜 범위 필터 */}
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-3">
-                  생성일
-                </label>
-                <div className="space-y-2">
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">
-                      시작일
-                    </label>
-                    <input
-                      type="date"
-                      value={dateRange.startDate}
-                      onChange={(e) =>
-                        setDateRange((prev) => ({
-                          ...prev,
-                          startDate: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">
-                      종료일
-                    </label>
-                    <input
-                      type="date"
-                      value={dateRange.endDate}
-                      onChange={(e) =>
-                        setDateRange((prev) => ({
-                          ...prev,
-                          endDate: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
                 </div>
               </div>
 
@@ -477,7 +407,9 @@ export default function AlarmsPage() {
                         </span>
                         <span
                           className={`px-3 py-1 rounded-full border text-xs font-medium ${
-                            alarm.severity === "high"
+                            alarm.severity === "critical"
+                              ? "bg-red-600/10 text-red-300 border-red-600/30"
+                              : alarm.severity === "high"
                               ? "bg-red-500/10 text-red-400 border-red-500/30"
                               : alarm.severity === "medium"
                               ? "bg-orange-500/10 text-orange-400 border-orange-500/30"

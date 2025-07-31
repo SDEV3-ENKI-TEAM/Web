@@ -191,6 +191,7 @@ async def get_dashboard():
                 "anomaly": tag.get("anomaly", 0.0),
                 "label": "위험" if tag.get("error") or tag.get("otel@status_code") == "ERROR" else "정상",
                 "event": tag.get("EventName") or source.get("operationName", "-"),
+                "ai_summary": tag.get("ai_summary") or "AI 분석 중...",
             })
         return {"events": events}
     except Exception as e:
@@ -252,7 +253,6 @@ async def get_alarm_traces(offset: int = 0, limit: int = 50):
             }
             count_response = opensearch_analyzer.client.search(index="jaeger-span-*", body=count_query)
             
-            # aggregation 결과를 딕셔너리로 변환
             for bucket in count_response['aggregations']['trace_counts']['buckets']:
                 trace_span_counts[bucket['key']] = bucket['doc_count']
         
@@ -552,7 +552,6 @@ async def get_alarms_severity():
         if mongo_collection is None:
             raise HTTPException(status_code=500, detail="MongoDB 연결이 없습니다.")
         
-        # OpenSearch에서 Sigma 알람이 있는 이벤트 조회
         query = {
             "query": {
                 "bool": {
@@ -578,7 +577,7 @@ async def get_alarms_severity():
             sigma_alert_id = tag.get('sigma@alert')
             
             if sigma_alert_id:
-                # MongoDB에서 해당 Sigma 룰 정보 조회
+
                 rule_info = mongo_collection.find_one({"sigma_id": sigma_alert_id})
                 
                 if rule_info:
@@ -608,8 +607,7 @@ async def get_trace_severity(trace_id: str):
     try:
         if mongo_collection is None:
             raise HTTPException(status_code=500, detail="MongoDB 연결이 없습니다.")
-        
-        # 해당 Trace의 모든 이벤트 조회
+
         events = opensearch_analyzer.get_process_tree_events(trace_id)
         
         if not events:
@@ -644,15 +642,13 @@ async def get_trace_severity(trace_id: str):
                         "severity_score": severity_score,
                         "title": title
                     })
-                    
-                    # 모든 매칭된 룰의 점수를 수집
                     severity_scores.append(severity_score)
-        
-        # 평균 계산
+
         avg_severity_score = sum(severity_scores) / len(severity_scores)
-        
-        # 위험도 결정 (평균 위험도 기준)
+
         if avg_severity_score >= 90:
+            severity = "critical"
+        elif avg_severity_score >= 80:
             severity = "high"
         elif avg_severity_score > 60:
             severity = "medium"
@@ -662,7 +658,7 @@ async def get_trace_severity(trace_id: str):
         return {
             "trace_id": trace_id,
             "severity": severity,
-            "level": severity,  # 평균 기반이므로 severity와 동일
+            "level": severity,
             "severity_score": avg_severity_score,
             "matched_rules": matched_rules,
             "found": True
