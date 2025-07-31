@@ -66,14 +66,6 @@ async def search_trace_by_id(trace_id: str):
         alert_events = [event for event in events if event.get('has_alert', False)]
         has_any_alert = len(alert_events) > 0
         
-        
-        # 실제 호스트 정보 추출 (첫 번째 이벤트에서)
-        host_info = {
-            "hostname": "-",
-            "ip": "-",
-            "os": "-"
-        }
-        
         if events:
             first_event_source = events[0].get('_source', {})
             process_tag = first_event_source.get('process', {}).get('tag', {})

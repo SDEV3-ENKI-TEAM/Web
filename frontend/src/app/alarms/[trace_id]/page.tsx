@@ -18,7 +18,8 @@ import CustomNode from "@/components/CustomNode";
 interface Trace {
   trace_id: string;
   timestamp: string;
-  host: { hostname: string; ip: string; os: string };
+  host: string;
+  os: string;
   label: string;
   events: any[];
   sigma_match: string[];
@@ -180,8 +181,11 @@ function AlarmDetailContent() {
     return {
       event: event,
       index: Number(selectedNode.id),
-      host: trace.host.hostname,
-      os: trace.host.os,
+      host:
+        typeof trace.host === "object"
+          ? JSON.stringify(trace.host)
+          : trace.host,
+      os: typeof trace.os === "object" ? JSON.stringify(trace.os) : trace.os,
       sigma: tag["sigma@alert"] ? [tag["sigma@alert"]] : [],
       explanation: selectedNode.data.explanation,
     };
@@ -195,7 +199,11 @@ function AlarmDetailContent() {
     const hasAlerts = alertEvents.length > 0;
     return {
       riskLevel: hasAlerts ? "높음" : "낮음",
-      affectedSystems: [trace.host.hostname],
+      affectedSystems: [
+        typeof trace.host === "object"
+          ? JSON.stringify(trace.host)
+          : trace.host,
+      ],
       attackVector:
         trace.events.length > 0 ? trace.events[0].event_type : "알 수 없음",
       totalSteps: trace.events.length,
@@ -463,9 +471,16 @@ function AlarmDetailContent() {
                       가 중요한 이벤트입니다.
                     </p>
                     <p>
-                      • 영향받은 시스템:{" "}
+                      • 사용자:{" "}
                       <span className="text-cyan-400 font-semibold">
-                        {currentAnalysis.affectedSystems.join(", ")}
+                        {(() => {
+                          if (trace?.events && trace.events.length > 0) {
+                            const firstEvent = trace.events[0];
+                            const tag = firstEvent.tag || {};
+                            return tag.User || "-";
+                          }
+                          return "-";
+                        })()}
                       </span>
                     </p>
                     <div className="mt-3 p-3 bg-slate-800/50 rounded-lg">
@@ -500,11 +515,16 @@ function AlarmDetailContent() {
                       </div>
                       <div className="p-3 bg-slate-800/50 rounded-lg">
                         <div className="flex justify-between items-center">
-                          <span className="text-slate-400">
-                            영향받은 시스템
-                          </span>
+                          <span className="text-slate-400">사용자</span>
                           <span className="text-cyan-400">
-                            {currentAnalysis.affectedSystems.join(", ")}
+                            {(() => {
+                              if (trace?.events && trace.events.length > 0) {
+                                const firstEvent = trace.events[0];
+                                const tag = firstEvent.tag || {};
+                                return tag.User || "-";
+                              }
+                              return "-";
+                            })()}
                           </span>
                         </div>
                       </div>
@@ -786,18 +806,6 @@ function AlarmDetailContent() {
                     <span className="text-slate-400">경로:</span>
                     <div className="text-cyan-300 break-words text-sm">
                       {nodeDetail.event.tag?.CurrentDirectory || "-"}
-                    </div>
-                  </div>
-                  <div className="min-w-0">
-                    <span className="text-slate-400">호스트명:</span>
-                    <div className="text-cyan-300 break-words text-sm">
-                      {nodeDetail.host}
-                    </div>
-                  </div>
-                  <div className="min-w-0">
-                    <span className="text-slate-400">운영체제:</span>
-                    <div className="text-cyan-300 break-words text-sm">
-                      {nodeDetail.os}
                     </div>
                   </div>
                 </div>
