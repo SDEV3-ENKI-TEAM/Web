@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta, timezone
-from security_log_analyzer import SecurityLogAnalyzer
 from opensearch_analyzer import OpenSearchAnalyzer
 import re
 import json
@@ -19,8 +18,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-analyzer = SecurityLogAnalyzer()
 opensearch_analyzer = OpenSearchAnalyzer()
 
 def to_korea_time(utc_timestamp_ms: int) -> str:
@@ -172,7 +169,7 @@ async def get_dashboard():
             process_tag = source.get('process', {}).get('tag', {})
             ts = source.get("startTimeMillis")
             if isinstance(ts, (int, float)):
-                timestamp_str = datetime.utcfromtimestamp(ts/1000).strftime("%Y-%m-%d %H:%M")
+                timestamp_str = datetime.fromtimestamp(ts/1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
             else:
                 timestamp_str = str(ts) if ts else ""
             events.append({
