@@ -15,6 +15,9 @@ interface Alarm {
   sigma_alert?: string;
   span_count?: number;
   ai_summary?: string;
+  severity?: string;
+  severity_score?: number;
+  sigma_rule_title?: string;
 }
 
 function timeAgo(dateNum: number) {
@@ -43,28 +46,56 @@ export default function AlarmsPage() {
   const limit = 10;
   const router = useRouter();
 
+  const [severityFilters, setSeverityFilters] = useState<string[]>([]);
+  const [dateRange, setDateRange] = useState({
+    startDate: "",
+    endDate: "",
+  });
+  const [showFilters, setShowFilters] = useState(false);
+
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetch(`/api/alarms?offset=${(page - 1) * limit}&limit=${limit}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("API 오류");
-        return res.json();
-      })
-      .then((data) => {
-        setAlarms(
-          (data.alarms || []).map((a: any) => ({
+
+    const fetchAlarms = async () => {
+      try {
+        const alarmsRes = await fetch(
+          `/api/alarms?offset=${(page - 1) * limit}&limit=${limit}`
+        );
+        if (!alarmsRes.ok) throw new Error("알람 API 오류");
+        const alarmsData = await alarmsRes.json();
+
+        const severityRes = await fetch("/api/alarms/severity");
+        let severityData: Record<string, any> = {};
+        if (severityRes.ok) {
+          const severityResult = await severityRes.json();
+          severityData = severityResult.severity_data || {};
+        }
+
+        const alarmsWithSeverity = (alarmsData.alarms || []).map((a: any) => {
+          const alarmSeverity = a.sigma_alert
+            ? severityData[a.sigma_alert]
+            : null;
+          return {
             ...a,
             checked: a.checked || false,
-          }))
-        );
-        setTotal(data.total || 0);
+            severity: alarmSeverity?.level || "low",
+            severity_score: alarmSeverity?.severity_score || 30,
+            sigma_rule_title:
+              alarmSeverity?.title || a.sigma_alert || a.summary,
+          };
+        });
+
+        setAlarms(alarmsWithSeverity);
+        setTotal(alarmsData.total || 0);
         setLoading(false);
-      })
-      .catch((e) => {
+      } catch (e) {
         setError("알람 데이터를 불러오지 못했습니다.");
         setLoading(false);
-      });
+      }
+    };
+
+    fetchAlarms();
   }, [page]);
 
   function sortAlarms(list: Alarm[]) {
@@ -95,11 +126,18 @@ export default function AlarmsPage() {
       const matchSearch =
         alarm.trace_id.toLowerCase().includes(search.toLowerCase()) ||
         alarm.summary.toLowerCase().includes(search.toLowerCase());
+
       const matchStatus =
         statusFilter === "all" ||
         (statusFilter === "checked" && alarm.checked) ||
         (statusFilter === "unchecked" && !alarm.checked);
-      return matchSearch && matchStatus;
+
+      // 심각도 필터
+      const matchSeverity =
+        severityFilters.length === 0 ||
+        severityFilters.includes(alarm.severity || "low");
+
+      return matchSearch && matchStatus && matchSeverity;
     })
   );
 
@@ -144,6 +182,23 @@ export default function AlarmsPage() {
     }
   };
 
+  // 필터 초기화 함수
+  const resetFilters = () => {
+    setSearch("");
+    setStatusFilter("all");
+    setSeverityFilters([]);
+    setDateRange({ startDate: "", endDate: "" });
+  };
+
+  // 심각도 필터 토글 함수
+  const toggleSeverityFilter = (severity: string) => {
+    setSeverityFilters((prev) =>
+      prev.includes(severity)
+        ? prev.filter((s) => s !== severity)
+        : [...prev, severity]
+    );
+  };
+
   const totalPages = Math.ceil(total / limit);
   const pageNumbers = [];
   for (let i = 1; i <= totalPages; i++) {
@@ -185,7 +240,9 @@ export default function AlarmsPage() {
         </motion.div>
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
           <div className="text-slate-400 text-sm font-mono">
-            총 {total}개 알람
+            총 {total}개 알람{" "}
+            {filteredAlarms.length !== alarms.length &&
+              `(필터링됨: ${filteredAlarms.length}개)`}
           </div>
           <div className="flex flex-row gap-2 w-full md:w-auto">
             <input
@@ -195,17 +252,119 @@ export default function AlarmsPage() {
               onChange={(e) => setSearch(e.target.value)}
               className="border border-slate-700 bg-slate-900 rounded px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 w-full md:w-80"
             />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="border border-slate-700 bg-slate-900 rounded px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 w-32"
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="px-4 py-2 bg-slate-800 border border-slate-700 rounded text-slate-200 hover:bg-slate-700 transition-colors font-sans text-sm flex items-center gap-2"
             >
-              <option value="all">전체</option>
-              <option value="unchecked">미확인</option>
-              <option value="checked">확인됨</option>
-            </select>
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.207A1 1 0 013 6.5V4z"
+                />
+              </svg>
+              필터
+            </button>
           </div>
         </div>
+
+        {/* 필터 패널 */}
+        {showFilters && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mb-6 rounded-lg border border-slate-800 bg-slate-900/80 p-6"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-200">필터</h3>
+              <button
+                onClick={resetFilters}
+                className="flex items-center gap-2 px-3 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:bg-slate-700 transition-colors text-sm"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                초기화
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* 심각도 필터 */}
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-3">
+                  심각도
+                </label>
+                <div className="space-y-2">
+                  {["critical", "high", "medium", "low"].map((severity) => (
+                    <label
+                      key={severity}
+                      className="flex items-center gap-2 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={severityFilters.includes(severity)}
+                        onChange={() => toggleSeverityFilter(severity)}
+                        className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-600 rounded focus:ring-blue-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-slate-300 capitalize">
+                        {severity}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* 상태 필터 */}
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-3">
+                  상태
+                </label>
+                <div className="space-y-2">
+                  {[
+                    { value: "all", label: "전체" },
+                    { value: "unchecked", label: "미확인" },
+                    { value: "checked", label: "확인됨" },
+                  ].map((status) => (
+                    <label
+                      key={status.value}
+                      className="flex items-center gap-2 cursor-pointer"
+                    >
+                      <input
+                        type="radio"
+                        name="statusFilter"
+                        value={status.value}
+                        checked={statusFilter === status.value}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-600 focus:ring-blue-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-slate-300">
+                        {status.label}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         <div className="rounded-lg border border-slate-800 bg-slate-900/80 p-6">
           {loading ? (
             <div className="text-center text-slate-400 py-10 text-lg font-mono">
@@ -233,7 +392,7 @@ export default function AlarmsPage() {
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex-1">
                       <h3 className="text-lg font-bold text-slate-100 mb-2">
-                        {alarm.sigma_alert || alarm.summary}
+                        {alarm.sigma_rule_title || alarm.summary}
                       </h3>
                       <div className="flex items-center gap-3">
                         <span
@@ -249,8 +408,16 @@ export default function AlarmsPage() {
                         >
                           {alarm.checked ? "확인됨" : "미확인"}
                         </span>
-                        <span className="px-3 py-1 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/30 text-xs font-medium">
-                          high
+                        <span
+                          className={`px-3 py-1 rounded-full border text-xs font-medium ${
+                            alarm.severity === "high"
+                              ? "bg-red-500/10 text-red-400 border-red-500/30"
+                              : alarm.severity === "medium"
+                              ? "bg-orange-500/10 text-orange-400 border-orange-500/30"
+                              : "bg-yellow-500/10 text-yellow-400 border-yellow-500/30"
+                          }`}
+                        >
+                          {alarm.severity || "low"}
                         </span>
                       </div>
                     </div>

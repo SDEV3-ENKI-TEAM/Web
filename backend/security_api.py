@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta, timezone
 from opensearch_analyzer import OpenSearchAnalyzer
+from pymongo import MongoClient
 import re
 import json
 import os
@@ -19,6 +20,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 opensearch_analyzer = OpenSearchAnalyzer()
+
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+MONGO_DB = os.getenv("MONGO_DB", "security")
+MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "rules")
+
+try:
+    mongo_client = MongoClient(MONGO_URI)
+    mongo_db = mongo_client[MONGO_DB]
+    mongo_collection = mongo_db[MONGO_COLLECTION]
+    print(f"MongoDB 연결 성공: {MONGO_URI}")
+except Exception as e:
+    print(f"MongoDB 연결 실패: {e}")
+    mongo_client = None
+    mongo_collection = None
 
 def to_korea_time(utc_timestamp_ms: int) -> str:
     """UTC 타임스탬프를 한국 시간으로 변환합니다."""
@@ -528,6 +543,130 @@ async def get_trace_stats():
         }
     except Exception as e:
         print(f"/api/trace-stats 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/alarms/severity")
+async def get_alarms_severity():
+    """알람들의 위험도 정보를 반환합니다."""
+    try:
+        if mongo_collection is None:
+            raise HTTPException(status_code=500, detail="MongoDB 연결이 없습니다.")
+        
+        # OpenSearch에서 Sigma 알람이 있는 이벤트 조회
+        query = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {"term": {"tag.error": True}},
+                        {"exists": {"field": "tag.sigma@alert"}}
+                    ]
+                }
+            },
+            "size": 1000
+        }
+        
+        spans_data = opensearch_analyzer.client.search(
+            index="jaeger-span-*",
+            body=query
+        )
+        
+        severity_data = {}
+        
+        for hit in spans_data['hits']['hits']:
+            source = hit['_source']
+            tag = source.get('tag', {})
+            sigma_alert_id = tag.get('sigma@alert')
+            
+            if sigma_alert_id:
+                # MongoDB에서 해당 Sigma 룰 정보 조회
+                rule_info = mongo_collection.find_one({"sigma_id": sigma_alert_id})
+                
+                if rule_info:
+                    level = rule_info.get('level', 'medium')
+                    severity_score = rule_info.get('severity_score', 60)
+                    title = rule_info.get('title', 'Unknown Rule')
+                    
+                    severity_data[sigma_alert_id] = {
+                        "level": level,
+                        "severity_score": severity_score,
+                        "title": title,
+                        "sigma_id": sigma_alert_id
+                    }
+        
+        return {
+            "severity_data": severity_data,
+            "total_alerts": len(severity_data)
+        }
+        
+    except Exception as e:
+        print(f"/api/alarms/severity 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/alarms/{trace_id}/severity")
+async def get_trace_severity(trace_id: str):
+    """특정 Trace의 위험도 정보를 반환합니다."""
+    try:
+        if mongo_collection is None:
+            raise HTTPException(status_code=500, detail="MongoDB 연결이 없습니다.")
+        
+        # 해당 Trace의 모든 이벤트 조회
+        events = opensearch_analyzer.get_process_tree_events(trace_id)
+        
+        if not events:
+            return {
+                "trace_id": trace_id,
+                "severity": "low",
+                "level": "low",
+                "severity_score": 30,
+                "matched_rules": [],
+                "found": False
+            }
+        
+        matched_rules = []
+        severity_scores = []
+        
+        for event in events:
+            source = event.get('_source', {})
+            tag = source.get('tag', {})
+            sigma_alert_id = tag.get('sigma@alert')
+            
+            if sigma_alert_id and tag.get('error'):
+                rule_info = mongo_collection.find_one({"sigma_id": sigma_alert_id})
+                
+                if rule_info:
+                    level = rule_info.get('level', 'medium')
+                    severity_score = rule_info.get('severity_score', 60)
+                    title = rule_info.get('title', 'Unknown Rule')
+                    
+                    matched_rules.append({
+                        "sigma_id": sigma_alert_id,
+                        "level": level,
+                        "severity_score": severity_score,
+                        "title": title
+                    })
+                    
+                    severity_scores.append(severity_score)
+        
+        avg_severity_score = sum(severity_scores) / len(severity_scores)
+        
+        if avg_severity_score >= 90:
+            severity = "high"
+        elif avg_severity_score > 60:
+            severity = "medium"
+        else:
+            severity = "low"
+        
+        return {
+            "trace_id": trace_id,
+            "severity": severity,
+            "level": severity,  # 평균 기반이므로 severity와 동일
+            "severity_score": avg_severity_score,
+            "matched_rules": matched_rules,
+            "found": True
+        }
+        
+    except Exception as e:
+        print(f"/api/alarms/{trace_id}/severity 오류: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

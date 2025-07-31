@@ -150,6 +150,9 @@ function AlarmDetailContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"report" | "response">("report");
   const [showRaw, setShowRaw] = useState(false);
+  const [sigmaRuleTitles, setSigmaRuleTitles] = useState<
+    Record<string, string>
+  >({});
 
   const handleTabChange = useCallback((tab: "report" | "response") => {
     setActiveTab(tab);
@@ -160,8 +163,6 @@ function AlarmDetailContent() {
     setSelectedNode(node);
   }, []);
 
-  const handleLogout = useCallback(() => {}, []);
-
   const onLoad = useCallback((inst: any) => {
     reactFlowInstance.current = inst;
     setTimeout(() => {
@@ -171,6 +172,24 @@ function AlarmDetailContent() {
 
   const onCloseModal = useCallback(() => {
     setSelectedNode(null);
+  }, []);
+
+  const fetchSigmaRuleTitles = useCallback(async () => {
+    try {
+      const response = await fetch("/api/alarms/severity");
+      if (response.ok) {
+        const data = await response.json();
+        const titles: Record<string, string> = {};
+        Object.values(data.severity_data || {}).forEach((rule: any) => {
+          if (rule.sigma_id && rule.title) {
+            titles[rule.sigma_id] = rule.title;
+          }
+        });
+        setSigmaRuleTitles(titles);
+      }
+    } catch (error) {
+      console.error("Sigma 룰 정보 가져오기 실패:", error);
+    }
   }, []);
 
   const nodeDetail = useMemo(() => {
@@ -315,19 +334,9 @@ function AlarmDetailContent() {
       } else {
         eventKor = "";
       }
-      const finalLabel = `${processName} (${eventKor})`;
       const explanation = eventTypeExplanations[eventType] || eventType;
       const hasAlert =
         !!tag["sigma@alert"] || tag.error === true || tag.error === "true";
-      const nodeStyle = getNodeStyle(hasAlert, totalNodes);
-      const displayLabel = (
-        <div style={getDisplayLabelStyle(hasAlert, totalNodes)}>
-          <div>
-            {idx + 1}. {processName}
-          </div>
-          <div style={{ fontSize: "11px", opacity: 0.8 }}>({eventKor})</div>
-        </div>
-      );
       const layout = getNodeLayout(idx, totalNodes);
       return {
         id: String(idx),
@@ -389,6 +398,11 @@ function AlarmDetailContent() {
     setNodes(memoizedNodesAndEdges.nodes);
     setEdges(memoizedNodesAndEdges.edges);
   }, [memoizedNodesAndEdges, setNodes, setEdges]);
+
+  // Sigma 룰 정보 가져오기
+  useEffect(() => {
+    fetchSigmaRuleTitles();
+  }, [fetchSigmaRuleTitles]);
 
   const nodeTypes = useMemo(() => ({ customNode: CustomNode }), []);
 
@@ -813,7 +827,11 @@ function AlarmDetailContent() {
                   <div className="mt-4">
                     <span className="text-slate-400">탐지된 Sigma 룰:</span>
                     <div className="text-yellow-300 bg-yellow-500/10 p-2 rounded border border-yellow-500/20 text-sm break-words">
-                      {nodeDetail.event.tag["sigma@alert"]}
+                      {(() => {
+                        const sigmaAlertId =
+                          nodeDetail.event.tag["sigma@alert"];
+                        return sigmaRuleTitles[sigmaAlertId] || sigmaAlertId;
+                      })()}
                     </div>
                   </div>
                 )}

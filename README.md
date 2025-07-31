@@ -18,6 +18,8 @@ AI-Detector는 Sysmon ETW(Event Tracing for Windows) 데이터를 실시간으�
 - OpenSearch/Elasticsearch - 보안 데이터 저장 및 검색
 - Pandas - 데이터 분석 및 전처리
 - Uvicorn - ASGI 서버
+- MongoDB - Sigma 룰 저장 및 관리
+- PyMongo - MongoDB Python 드라이버
 
 ### Frontend
 
@@ -25,6 +27,13 @@ AI-Detector는 Sysmon ETW(Event Tracing for Windows) 데이터를 실시간으�
 - React Flow - 인터랙티브 노드 그래프 시각화
 - Tailwind CSS - 유틸리티 기반 스타일링
 - TypeScript
+
+### Sigma 룰 처리
+
+- PyYAML - YAML 파일 파싱
+- Tenacity - 재시도 로직
+- TQDM - 진행도 표시
+- Python-dotenv - 환경 변수 관리
 
 ---
 
@@ -46,8 +55,9 @@ AI-Detector/
 │   │   └── ...
 │   ├── package.json
 │   └── ...
-├── README.md
-└── INSTALL_GUIDE.md
+├── import_sigma_rules_advanced.py  # Sigma 룰 MongoDB 임포트 스크립트
+├── requirements.txt
+└── README.md
 ```
 
 ---
@@ -59,6 +69,7 @@ AI-Detector/
 - Python 3.8+
 - Node.js 18+
 - OpenSearch
+- MongoDB (Sigma 룰 저장용)
 - (Spring Boot 백엔드 사용 시) JDK 11+, Maven 3.6+
 - MySQL
 
@@ -92,10 +103,81 @@ npm run dev
 
 ### 4. Spring Boot 백엔드 빌드 및 실행
 
+#### 필수 요구사항
+
 ```bash
 cd backend
 ./mvn clean install -DskipTests
 ./mvn spring-boot:run
 # 또는
-mvnw.cmd spring-boot:run  # Windows
+mvn spring-boot:run  # Windows
 ```
+
+---
+
+### 5. Sigma 룰 MongoDB 임포트
+
+Sigma 룰을 MongoDB에 임포트하여 보안 분석에 활용할 수 있습니다.
+
+#### 필수 요구사항
+
+- MongoDB (로컬 또는 원격)
+- Python 3.8+
+
+#### 설치 및 실행
+
+```bash
+# Python 패키지 설치
+pip install -r requirements.txt
+
+# 기본 임포트 (EventAgent-main/sigma_matcher/rules/rules 디렉토리 사용)
+python import_sigma_rules_advanced.py
+
+# 특정 디렉토리 임포트
+python import_sigma_rules_advanced.py --dir EventAgent-main/sigma_matcher/rules/rules/windows
+
+# 컬렉션 초기화 후 임포트
+python import_sigma_rules_advanced.py --clear-collection
+
+# Dry run (실제 저장하지 않고 테스트)
+python import_sigma_rules_advanced.py --dry-run
+
+# 상세 로그 출력
+python import_sigma_rules_advanced.py --verbose
+```
+
+#### CLI 옵션
+
+| 옵션                 | 설명                             | 기본값                                      |
+| -------------------- | -------------------------------- | ------------------------------------------- |
+| `--dir`              | Sigma 룰 디렉토리 경로           | `EventAgent-main/sigma_matcher/rules/rules` |
+| `--dry-run`          | 실제 저장하지 않고 테스트만 실행 | False                                       |
+| `--clear-collection` | 기존 컬렉션 데이터 삭제          | False                                       |
+| `--bulk-size`        | Bulk 연산 크기                   | 100                                         |
+| `--mongo-uri`        | MongoDB 연결 URI                 | `mongodb://localhost:27017`                 |
+| `--db-name`          | 데이터베이스 이름                | `security`                                  |
+| `--collection-name`  | 컬렉션 이름                      | `rules`                                     |
+| `--verbose`          | 상세 로그 출력                   | False                                       |
+
+#### 임포트된 데이터 구조
+
+각 Sigma 룰은 다음 필드로 MongoDB에 저장:
+
+- `title`: 룰 제목
+- `sigma_id`: Sigma 룰 ID
+- `description`: 룰 설명
+- `level`: 위험도 레벨 (high/medium/low/critical/warning/informational)
+- `severity_score`: 위험도 점수 (high=90, medium=60, low=30)
+- `status`: 룰 상태 (stable/deprecated)
+- `logsource`: 로그 소스 정보
+- `detection`: 탐지 조건
+- `falsepositives`: 오탐 가능성
+- `author`: 작성자
+- `date`: 작성일
+- `modified`: 수정일
+- `references`: 참조 링크
+- `tags`: 태그 목록
+- `fields`: 추가 필드
+- `rule_id`: 파일명 기반 룰 ID
+- `source_file`: 원본 파일 경로
+- `imported_at`: 임포트 시간
