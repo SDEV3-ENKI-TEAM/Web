@@ -112,33 +112,33 @@ function getProcessDisplayName(event: any): string {
   return "알 수 없는 활동";
 }
 
-const sysmonEventKorean: { [key: string]: string } = {
-  "1": "프로세스 실행",
-  "2": "파일 시간 변경",
-  "3": "네트워크 연결",
-  "4": "Sysmon 서비스 상태",
-  "5": "프로세스 종료",
-  "6": "드라이버 로드",
-  "7": "이미지 로드",
-  "8": "원격 스레드 생성",
-  "9": "파일 직접 접근",
-  "10": "프로세스 접근",
-  "11": "파일 쓰기",
-  "12": "레지스트리 이벤트",
-  "13": "레지스트리 값 설정",
-  "14": "레지스트리 키 이름변경",
-  "15": "파일 스트림 생성",
-  "16": "서비스 설정 변경",
-  "17": "파이프 생성",
-  "18": "파이프 연결",
-  "19": "WMI 이벤트 필터",
-  "20": "WMI 이벤트 컨슈머",
-  "21": "WMI 컨슈머 필터",
-  "22": "DNS 이벤트",
-  "23": "파일 삭제",
-  "24": "클립보드 변경",
-  "25": "프로세스 변조",
-  "26": "파일 삭제 탐지",
+const ruleNameKorean: { [key: string]: string } = {
+  ProcessTerminate: "프로세스 종료",
+  ProcessCreate: "프로세스 생성",
+  NetworkConnection: "네트워크 연결",
+  FileCreate: "파일 생성",
+  FileDelete: "파일 삭제",
+  RegistrySet: "레지스트리 설정",
+  RegistryDelete: "레지스트리 삭제",
+  ServiceCreate: "서비스 생성",
+  ServiceDelete: "서비스 삭제",
+  DriverLoad: "드라이버 로드",
+  ImageLoad: "이미지 로드",
+  ClipboardChange: "클립보드 변경",
+  DNSQuery: "DNS 쿼리",
+  WmiEventFilter: "WMI 이벤트 필터",
+  WmiEventConsumer: "WMI 이벤트 컨슈머",
+  WmiConsumerFilter: "WMI 컨슈머 필터",
+  FileAccess: "파일 접근",
+  ProcessAccess: "프로세스 접근",
+  ThreadCreate: "스레드 생성",
+  PipeEvent: "파이프 이벤트",
+  FileStreamCreated: "파일 스트림 생성",
+  RegistryEvent: "레지스트리 이벤트",
+  RegistryValueSet: "레지스트리 값 설정",
+  RegistryKeyRename: "레지스트리 키 이름변경",
+  FileDeleteDetected: "파일 삭제 탐지",
+  ProcessTampering: "프로세스 변조",
 };
 
 function AlarmDetailContent() {
@@ -150,9 +150,6 @@ function AlarmDetailContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"report" | "response">("report");
   const [showRaw, setShowRaw] = useState(false);
-  const [sigmaRuleTitles, setSigmaRuleTitles] = useState<
-    Record<string, string>
-  >({});
 
   const handleTabChange = useCallback((tab: "report" | "response") => {
     setActiveTab(tab);
@@ -163,6 +160,8 @@ function AlarmDetailContent() {
     setSelectedNode(node);
   }, []);
 
+  const handleLogout = useCallback(() => {}, []);
+
   const onLoad = useCallback((inst: any) => {
     reactFlowInstance.current = inst;
     setTimeout(() => {
@@ -172,24 +171,6 @@ function AlarmDetailContent() {
 
   const onCloseModal = useCallback(() => {
     setSelectedNode(null);
-  }, []);
-
-  const fetchSigmaRuleTitles = useCallback(async () => {
-    try {
-      const response = await fetch("/api/alarms/severity");
-      if (response.ok) {
-        const data = await response.json();
-        const titles: Record<string, string> = {};
-        Object.values(data.severity_data || {}).forEach((rule: any) => {
-          if (rule.sigma_id && rule.title) {
-            titles[rule.sigma_id] = rule.title;
-          }
-        });
-        setSigmaRuleTitles(titles);
-      }
-    } catch (error) {
-      console.error("Sigma 룰 정보 가져오기 실패:", error);
-    }
   }, []);
 
   const nodeDetail = useMemo(() => {
@@ -327,12 +308,13 @@ function AlarmDetailContent() {
       const eventId = tag.ID;
       const op = event.operationName || "";
       let eventKor = "";
-      const match = op.match(/evt:(\d+)/);
-      if (match) {
-        const evtId = match[1];
-        eventKor = sysmonEventKorean[evtId] || `이벤트 ${evtId}`;
+
+      const newFormatMatch = op.match(/\(rule:([^)]+)\)/);
+      if (newFormatMatch) {
+        const ruleName = newFormatMatch[1];
+        eventKor = ruleNameKorean[ruleName] || ruleName;
       } else {
-        eventKor = "";
+        eventKor = tag.EventName || "알 수 없는 이벤트";
       }
       const explanation = eventTypeExplanations[eventType] || eventType;
       const hasAlert =
@@ -398,11 +380,6 @@ function AlarmDetailContent() {
     setNodes(memoizedNodesAndEdges.nodes);
     setEdges(memoizedNodesAndEdges.edges);
   }, [memoizedNodesAndEdges, setNodes, setEdges]);
-
-  // Sigma 룰 정보 가져오기
-  useEffect(() => {
-    fetchSigmaRuleTitles();
-  }, [fetchSigmaRuleTitles]);
 
   const nodeTypes = useMemo(() => ({ customNode: CustomNode }), []);
 
@@ -827,11 +804,7 @@ function AlarmDetailContent() {
                   <div className="mt-4">
                     <span className="text-slate-400">탐지된 Sigma 룰:</span>
                     <div className="text-yellow-300 bg-yellow-500/10 p-2 rounded border border-yellow-500/20 text-sm break-words">
-                      {(() => {
-                        const sigmaAlertId =
-                          nodeDetail.event.tag["sigma@alert"];
-                        return sigmaRuleTitles[sigmaAlertId] || sigmaAlertId;
-                      })()}
+                      {nodeDetail.event.tag["sigma@alert"]}
                     </div>
                   </div>
                 )}

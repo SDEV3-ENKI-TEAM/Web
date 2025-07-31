@@ -645,10 +645,13 @@ async def get_trace_severity(trace_id: str):
                         "title": title
                     })
                     
+                    # 모든 매칭된 룰의 점수를 수집
                     severity_scores.append(severity_score)
         
+        # 평균 계산
         avg_severity_score = sum(severity_scores) / len(severity_scores)
         
+        # 위험도 결정 (평균 위험도 기준)
         if avg_severity_score >= 90:
             severity = "high"
         elif avg_severity_score > 60:

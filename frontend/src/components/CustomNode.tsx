@@ -8,10 +8,10 @@ interface CustomNodeProps {
     eventKor: string;
     hasAlert: boolean;
     totalNodes: number;
-    event: any;
-    explanation: string;
-    sourcePosition: any;
-    targetPosition: any;
+    event: any; // 원본 event 객체
+    explanation: string; // explanation
+    sourcePosition: any; // source handle 위치
+    targetPosition: any; // target handle 위치
   };
 }
 
@@ -57,9 +57,7 @@ const CustomNode = memo(({ data }: CustomNodeProps) => {
       <div>
         {idx + 1}. {processName}
       </div>
-      {eventKor && (
-        <div style={{ fontSize: "11px", opacity: 0.8 }}>({eventKor})</div>
-      )}
+      <div style={{ fontSize: "11px", opacity: 0.8 }}>({eventKor})</div>
     </div>
   );
 });
