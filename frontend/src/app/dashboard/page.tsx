@@ -8,7 +8,6 @@ import "react-resizable/css/styles.css";
 import { useDashboard } from "@/context/DashboardContext";
 import { useAuth } from "@/context/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
-import StatCard from "@/components/StatCard";
 import TimeSeriesChart from "@/components/TimeSeriesChart";
 import DonutChart from "@/components/DonutChart";
 import EventTable from "@/components/EventTable";
@@ -16,7 +15,7 @@ import EventDetail from "@/components/EventDetail";
 import BarChart from "@/components/BarChart";
 import HeatMap from "@/components/HeatMap";
 import DashboardSettings from "@/components/DashboardSettings";
-import { fetchEvents, fetchStats } from "@/lib/api";
+import { fetchStats } from "@/lib/api";
 import { Event, Stats, EventDetail as EventDetailType } from "@/types/event";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
@@ -24,8 +23,6 @@ const ResponsiveGridLayout = WidthProvider(Responsive);
 export default function Dashboard() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
-  const [events, setEvents] = useState<Event[]>([]);
-  const [alarms, setAlarms] = useState<any[]>([]);
   const [stats, setStats] = useState<Stats>({
     totalEvents: 0,
     anomalies: 0,
@@ -35,6 +32,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeseriesData, setTimeseriesData] = useState<any[]>([]);
+  const [barChartData, setBarChartData] = useState<any[]>([]);
+  const [heatMapData, setHeatMapData] = useState<any[]>([]);
 
   const [infiniteAlarms, setInfiniteAlarms] = useState<any[]>([]);
   const [infiniteLoading, setInfiniteLoading] = useState(false);
@@ -49,14 +48,8 @@ export default function Dashboard() {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [eventsData, statsData, alarmsData] = await Promise.all([
-          fetchEvents(),
-          fetchStats(),
-          fetch("/api/alarms?offset=0&limit=10").then((res) => res.json()),
-        ]);
-        setEvents(eventsData);
+        const statsData = await fetchStats();
         setStats(statsData);
-        setAlarms(alarmsData.alarms || []);
         setError(null);
       } catch (err) {
         console.error("Failed to load data:", err);
@@ -131,6 +124,38 @@ export default function Dashboard() {
     const interval = setInterval(fetchTimeseries, 10000);
 
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const fetchBarChartData = async () => {
+      try {
+        const res = await fetch("/api/bar-chart");
+        if (!res.ok) throw new Error("바 차트 데이터 요청 실패");
+        const data = await res.json();
+        setBarChartData(data);
+      } catch (err) {
+        console.error("바 차트 데이터 로드 실패:", err);
+        setBarChartData([]);
+      }
+    };
+
+    fetchBarChartData();
+  }, []);
+
+  useEffect(() => {
+    const fetchHeatMapData = async () => {
+      try {
+        const res = await fetch("/api/heatmap");
+        if (!res.ok) throw new Error("히트맵 데이터 요청 실패");
+        const data = await res.json();
+        setHeatMapData(data);
+      } catch (err) {
+        console.error("히트맵 데이터 로드 실패:", err);
+        setHeatMapData([]);
+      }
+    };
+
+    fetchHeatMapData();
   }, []);
 
   const handleLogout = () => {
@@ -353,7 +378,7 @@ export default function Dashboard() {
               onRemove={() => {}}
               widgetType="barchart"
             >
-              <BarChart />
+              <BarChart data={barChartData} />
             </WidgetWrapper>
           );
         case "heatmap":
@@ -363,7 +388,7 @@ export default function Dashboard() {
               onRemove={() => {}}
               widgetType="heatmap"
             >
-              <HeatMap />
+              <HeatMap data={heatMapData} />
             </WidgetWrapper>
           );
         case "eventtable":
@@ -390,7 +415,14 @@ export default function Dashboard() {
           return null;
       }
     },
-    [statsWidget, eventTableWidget, eventDetailWidget, timeseriesData]
+    [
+      statsWidget,
+      eventTableWidget,
+      eventDetailWidget,
+      timeseriesData,
+      barChartData,
+      heatMapData,
+    ]
   );
 
   return (

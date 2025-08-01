@@ -150,6 +150,39 @@ function AlarmDetailContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"report" | "response">("report");
   const [showRaw, setShowRaw] = useState(false);
+  const [sigmaTitles, setSigmaTitles] = useState<{ [key: string]: string }>({});
+
+  const fetchSigmaTitle = async (sigmaId: string) => {
+    try {
+      const response = await fetch(`/api/sigma-rule/${sigmaId}`);
+      if (response.ok) {
+        const data = await response.json();
+        return data.title || sigmaId;
+      }
+    } catch (error) {
+      console.error("Sigma rule 조회 실패:", error);
+    }
+    return sigmaId; // 실패 시 ID 반환
+  };
+
+  const fetchAllSigmaTitles = async (events: any[]) => {
+    const sigmaIds: string[] = [];
+
+    events.forEach((event) => {
+      const sigmaId = event.tag?.["sigma@alert"];
+      if (sigmaId && !sigmaIds.includes(sigmaId)) {
+        sigmaIds.push(sigmaId);
+      }
+    });
+
+    const titles: { [key: string]: string } = {};
+    for (const sigmaId of sigmaIds) {
+      const title = await fetchSigmaTitle(sigmaId);
+      titles[sigmaId] = title;
+    }
+
+    setSigmaTitles(titles);
+  };
 
   const handleTabChange = useCallback((tab: "report" | "response") => {
     setActiveTab(tab);
@@ -172,24 +205,6 @@ function AlarmDetailContent() {
   const onCloseModal = useCallback(() => {
     setSelectedNode(null);
   }, []);
-
-  const nodeDetail = useMemo(() => {
-    if (!selectedNode || !trace) return null;
-    const event = selectedNode.data?.event;
-    if (!event) return null;
-    const tag = event.tag || {};
-    return {
-      event: event,
-      index: Number(selectedNode.id),
-      host:
-        typeof trace.host === "object"
-          ? JSON.stringify(trace.host)
-          : trace.host,
-      os: typeof trace.os === "object" ? JSON.stringify(trace.os) : trace.os,
-      sigma: tag["sigma@alert"] ? [tag["sigma@alert"]] : [],
-      explanation: selectedNode.data.explanation,
-    };
-  }, [selectedNode, trace]);
 
   const generateLLMAnalysis = useCallback((trace: Trace) => {
     const alertEvents = trace.events.filter((event) => {
@@ -235,6 +250,10 @@ function AlarmDetailContent() {
         const res = await fetch(`/api/traces/search/${trace_id}`);
         const data = await res.json();
         setTrace(data.data || null);
+
+        if (data.data && data.data.events) {
+          await fetchAllSigmaTitles(data.data.events);
+        }
       } catch (error) {
         console.error("Trace fetch failed:", error);
       } finally {
@@ -661,7 +680,7 @@ function AlarmDetailContent() {
           </div>
         </div>
         <AnimatePresence>
-          {selectedNode && nodeDetail && (
+          {selectedNode && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -699,14 +718,16 @@ function AlarmDetailContent() {
                   <div className="text-blue-300 font-semibold mb-2">
                     이벤트 타입
                   </div>
-                  <div className="text-slate-300">{nodeDetail.explanation}</div>
+                  <div className="text-slate-300">
+                    {selectedNode.data.explanation}
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div className="min-w-0">
                     <span className="text-slate-400">활동 유형:</span>
                     <div className="text-purple-300 font-bold break-words text-sm">
                       {(() => {
-                        const tag = nodeDetail.event.tag || {};
+                        const tag = selectedNode.data.event.tag || {};
                         let eventType = "";
                         if (tag.EventName) {
                           eventType = tag.EventName.split("(")[0]
@@ -726,13 +747,13 @@ function AlarmDetailContent() {
                   <div className="min-w-0">
                     <span className="text-slate-400">단계 번호:</span>
                     <div className="text-blue-300 text-sm">
-                      {Number(nodeDetail.index) + 1}
+                      {Number(selectedNode.id) + 1}
                     </div>
                   </div>
                   <div className="min-w-0 md:col-span-2">
                     <span className="text-slate-400">Trace ID:</span>
                     <div className="text-cyan-300 bg-cyan-500/10 p-2 rounded border border-cyan-500/20 mt-1 break-all text-sm font-mono">
-                      {nodeDetail.event.trace_id ||
+                      {selectedNode.data.event.trace_id ||
                         trace?.trace_id ||
                         "데이터 없음"}
                     </div>
@@ -740,8 +761,8 @@ function AlarmDetailContent() {
                   <div className="min-w-0 md:col-span-2">
                     <span className="text-slate-400">실행 시간:</span>
                     <div className="text-amber-300 bg-amber-500/10 p-2 rounded border border-amber-500/20 mt-1 text-sm font-mono break-words">
-                      {nodeDetail.event.tag?.UtcTime ||
-                        nodeDetail.event.timestamp ||
+                      {selectedNode.data.event.tag?.UtcTime ||
+                        selectedNode.data.event.timestamp ||
                         "시간 정보 없음"}
                     </div>
                   </div>
@@ -751,7 +772,7 @@ function AlarmDetailContent() {
                     <span className="text-slate-400">실행된 프로그램:</span>
                     <div className="text-green-300 bg-green-500/10 p-2 rounded border border-green-500/20 mt-1 break-words text-sm">
                       {(() => {
-                        const tag = nodeDetail.event.tag || {};
+                        const tag = selectedNode.data.event.tag || {};
                         let processName =
                           tag.ProcessName ||
                           tag.Image ||
@@ -772,39 +793,41 @@ function AlarmDetailContent() {
                   <div className="min-w-0 md:col-span-2">
                     <span className="text-slate-400">명령어:</span>
                     <div className="text-yellow-300 bg-yellow-500/10 p-2 rounded border border-yellow-500/20 mt-1 break-all text-sm">
-                      {nodeDetail.event.tag?.CommandLine || "-"}
+                      {selectedNode.data.event.tag?.CommandLine || "-"}
                     </div>
                   </div>
                   <div className="min-w-0 md:col-span-2">
                     <span className="text-slate-400">부모 프로세스:</span>
                     <div className="text-orange-300 break-all text-sm">
-                      {nodeDetail.event.tag?.ParentImage || "-"}
+                      {selectedNode.data.event.tag?.ParentImage || "-"}
                     </div>
                   </div>
                   <div className="min-w-0 md:col-span-2">
                     <span className="text-slate-400">부모 명령어:</span>
                     <div className="text-orange-300 break-all text-sm">
-                      {nodeDetail.event.tag?.ParentCommandLine || "-"}
+                      {selectedNode.data.event.tag?.ParentCommandLine || "-"}
                     </div>
                   </div>
                   <div className="min-w-0">
                     <span className="text-slate-400">사용자:</span>
                     <div className="text-cyan-300 break-words text-sm">
-                      {nodeDetail.event.tag?.User || "-"}
+                      {selectedNode.data.event.tag?.User || "-"}
                     </div>
                   </div>
                   <div className="min-w-0">
                     <span className="text-slate-400">경로:</span>
                     <div className="text-cyan-300 break-words text-sm">
-                      {nodeDetail.event.tag?.CurrentDirectory || "-"}
+                      {selectedNode.data.event.tag?.CurrentDirectory || "-"}
                     </div>
                   </div>
                 </div>
-                {nodeDetail.event.tag?.["sigma@alert"] && (
+                {selectedNode.data.event.tag?.["sigma@alert"] && (
                   <div className="mt-4">
                     <span className="text-slate-400">탐지된 Sigma 룰:</span>
                     <div className="text-yellow-300 bg-yellow-500/10 p-2 rounded border border-yellow-500/20 text-sm break-words">
-                      {nodeDetail.event.tag["sigma@alert"]}
+                      {sigmaTitles[
+                        selectedNode.data.event.tag["sigma@alert"]
+                      ] || selectedNode.data.event.tag["sigma@alert"]}
                     </div>
                   </div>
                 )}
@@ -818,7 +841,7 @@ function AlarmDetailContent() {
                   </button>
                   {showRaw && (
                     <pre className="text-xs bg-slate-800 p-3 rounded border border-slate-700/50 overflow-auto text-slate-300 max-h-48">
-                      {JSON.stringify(nodeDetail.event, null, 2)}
+                      {JSON.stringify(selectedNode.data.event, null, 2)}
                     </pre>
                   )}
                 </div>

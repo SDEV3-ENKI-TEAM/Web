@@ -1,15 +1,4 @@
-import { Event, Stats } from "@/types/event";
-
-const API_BASE_URL = "http://localhost:9200";
-
-export async function fetchEvents(): Promise<Event[]> {
-  const response = await fetch("/api/dashboard");
-  if (!response.ok) {
-    throw new Error("Failed to fetch events from backend");
-  }
-  const data = await response.json();
-  return data.events;
-}
+import { Stats } from "@/types/event";
 
 export async function fetchStats(): Promise<Stats> {
   const response = await fetch("/api/dashboard-stats");

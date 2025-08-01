@@ -164,39 +164,6 @@ async def get_node_detail(trace_id: str, node_id: str):
             "message": f"노드 정보 조회 중 오류가 발생했습니다: {str(e)}"
         }
 
-@app.get("/api/dashboard")
-async def get_dashboard():
-    """대시보드용 이벤트 목록을 반환합니다."""
-    try:
-        spans_data = opensearch_analyzer.get_jaeger_spans(limit=100, offset=0)
-        events = []
-        for idx, span in enumerate(spans_data.get('hits', [])):
-            source = span.get('_source', {})
-            tag = source.get('tag', {})
-            process_tag = source.get('process', {}).get('tag', {})
-            ts = source.get("startTimeMillis")
-            if isinstance(ts, (int, float)):
-                timestamp_str = datetime.fromtimestamp(ts/1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
-            else:
-                timestamp_str = str(ts) if ts else ""
-            events.append({
-                "id": idx,
-                "traceID": source.get("traceID"),
-                "operationName": source.get("operationName"),
-                "timestamp": timestamp_str,
-                "duration": source.get("duration"),
-                "user": tag.get("User", "-"),
-                "host": process_tag.get("host@name", "-"),
-                "os": process_tag.get("os@type", "-"),
-                "anomaly": tag.get("anomaly", 0.0),
-                "label": "위험" if tag.get("error") or tag.get("otel@status_code") == "ERROR" else "정상",
-                "event": tag.get("EventName") or source.get("operationName", "-"),
-                "ai_summary": tag.get("ai_summary") or "AI 분석 중...",
-            })
-        return {"events": events}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/api/dashboard-stats")
 async def get_dashboard_stats():
     try:
@@ -205,8 +172,6 @@ async def get_dashboard_stats():
         return {
             "totalEvents": trace_stats["totalTraces"],
             "anomalies": trace_stats["anomalyTraces"],
-            "avgAnomaly": trace_stats["avgDuration"],
-            "highestScore": trace_stats["totalAlerts"],
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -228,7 +193,7 @@ async def get_alarm_traces(offset: int = 0, limit: int = 50):
                 }
             },
             "sort": [{"startTime": {"order": "desc"}}],
-            "size": max(limit * 5, 200),
+            "size": max(limit * 5, 10000),
             "from": 0
         }
         response = opensearch_analyzer.client.search(index="jaeger-span-*", body=query)                                               
@@ -272,7 +237,7 @@ async def get_alarm_traces(offset: int = 0, limit: int = 50):
                 "checked": get_alarm_checked_status(trace_id),
                 "sigma_alert": tag.get("sigma@alert", ""),
                 "span_count": trace_span_counts.get(trace_id, 0),
-                "ai_summary": "테스트 요약"
+                "ai_summary": "테스트 요약" # AI 요약 추가 필요
             })
         total = len(alarms)
         paged = alarms[offset:offset+limit]
@@ -401,7 +366,8 @@ async def get_alarms_infinite(cursor: str = None, limit: int = 20):
 async def get_trace_timeseries():
     """Trace 단위 시계열 데이터를 반환합니다."""
     try:
-        spans_data = opensearch_analyzer.get_jaeger_spans(limit=1000)
+        spans_data = opensearch_analyzer.get_jaeger_spans(limit=10000)
+        
         trace_groups = {}
         
         for span in spans_data['hits']:
@@ -427,7 +393,6 @@ async def get_trace_timeseries():
             
             tag = src.get('tag', {})
             is_anomaly = (
-                tag.get('anomaly') is not None or
                 tag.get('error') is True or
                 tag.get('otel@status_code') == 'ERROR' or
                 tag.get('sigma@alert') is not None
@@ -456,8 +421,6 @@ async def get_trace_timeseries():
             step = len(result) // 30
             result = result[::step]
         
-
-        
         return result
     except Exception as e:
         print(f"/api/trace-timeseries 오류: {e}")
@@ -467,26 +430,8 @@ async def get_trace_timeseries():
 async def get_donut_stats():
     """도넛 차트용 정상/위험 Trace 통계를 반환합니다."""
     try:
-        trace_stats = await get_trace_stats()
+        spans_data = opensearch_analyzer.get_jaeger_spans(limit=10000)
         
-        return {
-            "normalCount": trace_stats["normalTraces"],
-            "anomalyCount": trace_stats["anomalyTraces"],
-            "total": trace_stats["totalTraces"],
-            "normalPercentage": trace_stats["normalPercentage"],
-            "anomalyPercentage": trace_stats["anomalyPercentage"],
-            "processed": trace_stats["totalTraces"],
-            "failed": 0
-        }
-    except Exception as e:
-        print(f"/api/donut-stats 오류: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/trace-stats")
-async def get_trace_stats():
-    """Trace 단위로 집계된 통계를 반환합니다."""
-    try:
-        spans_data = opensearch_analyzer.get_jaeger_spans(limit=1000)
         trace_groups = {}
         
         for span in spans_data['hits']:
@@ -495,17 +440,8 @@ async def get_trace_stats():
             
             if trace_id not in trace_groups:
                 trace_groups[trace_id] = {
-                    'spans': [],
-                    'start_time': src.get('startTimeMillis', 0),
-                    'total_duration': 0,
-                    'has_anomaly': False,
-                    'alert_count': 0,
-                    'span_count': 0
+                    'has_anomaly': False
                 }
-            
-            trace_groups[trace_id]['spans'].append(src)
-            trace_groups[trace_id]['span_count'] += 1
-            trace_groups[trace_id]['total_duration'] += src.get('duration', 0)
             
             tag = src.get('tag', {})
             is_anomaly = (
@@ -517,17 +453,101 @@ async def get_trace_stats():
             
             if is_anomaly:
                 trace_groups[trace_id]['has_anomaly'] = True
-                trace_groups[trace_id]['alert_count'] += 1
         
         total_traces = len(trace_groups)
         normal_traces = sum(1 for trace in trace_groups.values() if not trace['has_anomaly'])
         anomaly_traces = sum(1 for trace in trace_groups.values() if trace['has_anomaly'])
         
-        total_duration = sum(trace['total_duration'] for trace in trace_groups.values())
-        avg_duration = total_duration / total_traces if total_traces > 0 else 0
+        normal_percentage = round((normal_traces / total_traces) * 100, 1) if total_traces > 0 else 0
+        anomaly_percentage = round((anomaly_traces / total_traces) * 100, 1) if total_traces > 0 else 0
         
+        return {
+            "normalCount": normal_traces,
+            "anomalyCount": anomaly_traces,
+            "total": total_traces,
+            "normalPercentage": normal_percentage,
+            "anomalyPercentage": anomaly_percentage,
+            "processed": total_traces,
+            "failed": 0
+        }
+    except Exception as e:
+        print(f"/api/donut-stats 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/trace-stats")
+async def get_trace_stats():
+    """Trace 단위로 집계된 통계를 반환합니다."""
+    try:
+        query = {
+            "query": {"match_all": {}},
+            "sort": [{"startTime": {"order": "desc"}}],
+            "size": 10000,
+            "aggs": {
+                "trace_groups": {
+                    "terms": {
+                        "field": "traceID",
+                        "size": 10000
+                    },
+                    "aggs": {
+                        "has_error": {
+                            "terms": {
+                                "field": "tag.error"
+                            }
+                        },
+                        "has_sigma_alert": {
+                            "terms": {
+                                "field": "tag.sigma@alert"
+                            }
+                        },
+                        "total_duration": {
+                            "sum": {
+                                "field": "duration"
+                            }
+                        },
+                        "span_count": {
+                            "value_count": {
+                                "field": "traceID"
+                            }
+                        }
+                    }
+                }
+            }
+        }
         
+        response = opensearch_analyzer.client.search(
+            index="jaeger-span-*",
+            body=query
+        )
+        
+        trace_stats = response.get('aggregations', {}).get('trace_groups', {}).get('buckets', [])
+        
+        total_traces = len(trace_stats)
+        normal_traces = 0
+        anomaly_traces = 0
+        total_duration = 0
+        total_spans = 0
+        total_alerts = 0
+        
+        for trace_bucket in trace_stats:
+            span_count = trace_bucket['span_count']['value']
+            duration = trace_bucket['total_duration']['value']
+            
+            has_error = any(bucket['key'] == True for bucket in trace_bucket['has_error']['buckets'])
+
+            has_sigma_alert = len(trace_bucket['has_sigma_alert']['buckets']) > 0
+            
+            is_anomaly = has_error or has_sigma_alert
+            
+            if is_anomaly:
+                anomaly_traces += 1
+                total_alerts += span_count
+            else:
+                normal_traces += 1
+            
+            total_duration += duration
+            total_spans += span_count
+        
+        avg_duration = total_duration / total_traces if total_traces > 0 else 0
         normal_percentage = round((normal_traces / total_traces) * 100, 1) if total_traces > 0 else 0
         anomaly_percentage = round((anomaly_traces / total_traces) * 100, 1) if total_traces > 0 else 0
         
@@ -538,8 +558,8 @@ async def get_trace_stats():
             "normalPercentage": normal_percentage,
             "anomalyPercentage": anomaly_percentage,
             "avgDuration": avg_duration,
-            "totalSpans": sum(trace['span_count'] for trace in trace_groups.values()),
-            "totalAlerts": sum(trace['alert_count'] for trace in trace_groups.values())
+            "totalSpans": total_spans,
+            "totalAlerts": total_alerts
         }
     except Exception as e:
         print(f"/api/trace-stats 오류: {e}")
@@ -666,6 +686,119 @@ async def get_trace_severity(trace_id: str):
         
     except Exception as e:
         print(f"/api/alarms/{trace_id}/severity 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/bar-chart")
+async def get_bar_chart_data():
+    """바 차트용 사용자별 이벤트 분포 데이터를 반환합니다."""
+    try:
+        query = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {"term": {"tag.error": True}},
+                        {"exists": {"field": "tag.sigma@alert"}}
+                    ]
+                }
+            },
+            "sort": [{"startTime": {"order": "desc"}}],
+            "size": 1000
+        }
+        
+        spans_data = opensearch_analyzer.client.search(
+            index="jaeger-span-*",
+            body=query
+        )
+        
+        user_stats = {}
+        
+        for span in spans_data['hits']['hits']:
+            src = span['_source']
+            user = src.get('tag', {}).get('user', 'unknown')
+            
+            if user not in user_stats:
+                user_stats[user] = {
+                    'normalCount': 0,
+                    'anomalyCount': 0
+                }
+            
+            user_stats[user]['anomalyCount'] += 1
+
+        sorted_users = sorted(
+            user_stats.items(),
+            key=lambda x: x[1]['normalCount'] + x[1]['anomalyCount'],
+            reverse=True
+        )[:5]
+        
+        return [
+            {
+                'user': user,
+                'normalCount': stats['normalCount'],
+                'anomalyCount': stats['anomalyCount']
+            }
+            for user, stats in sorted_users
+        ]
+        
+    except Exception as e:
+        print(f"/api/bar-chart 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/heatmap")
+async def get_heatmap_data():
+    """히트맵용 시간대별 활동 패턴 데이터를 반환합니다."""
+    try:
+        query = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {"term": {"tag.error": True}},
+                        {"exists": {"field": "tag.sigma@alert"}}
+                    ]
+                }
+            },
+            "sort": [{"startTime": {"order": "desc"}}],
+            "size": 1000
+        }
+        
+        spans_data = opensearch_analyzer.client.search(
+            index="jaeger-span-*",
+            body=query
+        )
+        
+        time_stats = {}
+        
+        for span in spans_data['hits']['hits']:
+            src = span['_source']
+            start_time = src.get('startTimeMillis', 0)
+            
+            if start_time > 0:
+                dt = datetime.fromtimestamp(start_time / 1000, tz=timezone.utc)
+                korea_tz = timezone(timedelta(hours=9))
+                korea_time = dt.astimezone(korea_tz)
+                
+                day = korea_time.weekday()
+                hour = korea_time.hour
+                
+                key = f"{day}_{hour}"
+                if key not in time_stats:
+                    time_stats[key] = 0
+                time_stats[key] += 1
+        
+        heatmap_data = []
+        for day in range(7):
+            for hour in range(24):
+                key = f"{day}_{hour}"
+                value = time_stats.get(key, 0)
+                heatmap_data.append({
+                    'day': day,
+                    'hour': hour,
+                    'value': value
+                })
+        
+        return heatmap_data
+        
+    except Exception as e:
+        print(f"/api/heatmap 오류: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
