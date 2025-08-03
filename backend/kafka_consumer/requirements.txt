@@ -1,0 +1,22 @@
+# Kafka Consumer + Valkey dependencies
+kafka-python==2.0.2
+redis==5.0.1
+
+# WebSocket Server dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+websockets==12.0
+
+# Logging and utilities
+python-json-logger==2.0.7
+
+# HTTP requests for Jaeger bridge
+requests==2.31.0
+
+# MongoDB for Sigma rules
+pymongo==4.6.0
+
+# Development tools (optional)
+pytest==7.4.3
+black==23.11.0
+flake8==6.1.0 

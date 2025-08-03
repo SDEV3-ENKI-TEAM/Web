@@ -18,6 +18,7 @@ interface Alarm {
   severity?: string;
   severity_score?: number;
   sigma_rule_title?: string;
+  isUpdated?: boolean; // 업데이트 플래그 추가
 }
 
 function timeAgo(dateNum: number) {
@@ -53,11 +54,131 @@ export default function AlarmsPage() {
   });
   const [showFilters, setShowFilters] = useState(false);
 
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [wsError, setWsError] = useState<string | null>(null);
 
-    const fetchAlarms = async () => {
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+
+    const connectWebSocket = () => {
+      try {
+        ws = new WebSocket("ws://localhost:8004/ws/alarms?limit=100");
+
+        ws.onopen = () => {
+          console.log("WebSocket 연결 성공");
+          setWsConnected(true);
+          setWsError(null);
+          console.log("WebSocket 연결됨 - API 호출 건너뜀");
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            console.log("WebSocket 메시지 수신:", data.type);
+
+            if (data.type === "initial_data") {
+              const initialAlarms = data.alarms || [];
+              setAlarms(initialAlarms);
+              setTotal(initialAlarms.length);
+              setLoading(false);
+            } else if (data.type === "new_trace") {
+              setAlarms((prevAlarms) => {
+                const newAlarm = data.data;
+
+                const exists = prevAlarms.find(
+                  (alarm) => alarm.trace_id === newAlarm.trace_id
+                );
+                if (exists) return prevAlarms;
+
+                return [
+                  {
+                    ...newAlarm,
+                    isUpdated: true,
+                    detected_at: newAlarm.detected_at,
+                  },
+                  ...prevAlarms.slice(0, 99),
+                ];
+              });
+              setTotal((prev) => prev + 1);
+            } else if (data.type === "trace_update") {
+              setAlarms((prevAlarms) => {
+                if (!data.trace_id || !data.data) {
+                  console.warn("⚠️ 업데이트 데이터가 유효하지 않음:", data);
+                  return prevAlarms;
+                }
+
+                return prevAlarms.map((alarm) => {
+                  if (alarm.trace_id === data.trace_id) {
+                    const updatedAlarm = {
+                      ...alarm,
+                      ...data.data,
+                      detected_at: alarm.detected_at,
+                      isUpdated: true,
+                    };
+
+                    setTimeout(() => {
+                      setAlarms((current) =>
+                        current.map((a) =>
+                          a.trace_id === data.trace_id
+                            ? { ...a, isUpdated: false }
+                            : a
+                        )
+                      );
+                    }, 3000);
+
+                    return updatedAlarm;
+                  }
+                  return alarm;
+                });
+              });
+            }
+          } catch (e) {
+            console.error("WebSocket 메시지 파싱 오류:", e);
+          }
+        };
+
+        ws.onclose = () => {
+          console.log("🔌 WebSocket 연결 해제");
+          setWsConnected(false);
+          setTimeout(connectWebSocket, 3000);
+        };
+
+        ws.onerror = (error) => {
+          console.error("WebSocket 오류:", error);
+          setWsError("WebSocket 연결 오류");
+          setWsConnected(false);
+        };
+      } catch (e) {
+        console.error("WebSocket 연결 실패:", e);
+        setWsError("WebSocket 연결 실패");
+        setWsConnected(false);
+      }
+    };
+
+    connectWebSocket();
+
+    return () => {
+      if (ws) {
+        ws.close();
+      }
+    };
+  }, []);
+
+  // WebSocket 연결 시도 후 실패 시 API 호출
+  useEffect(() => {
+    let wsTimeout: NodeJS.Timeout;
+
+    const tryWebSocketFirst = () => {
+      wsTimeout = setTimeout(() => {
+        setWsConnected(false);
+        fetchAlarmsFromAPI();
+      }, 2000);
+    };
+
+    const fetchAlarmsFromAPI = async () => {
+      setLoading(true);
+      setError(null);
+
       try {
         const alarmsRes = await fetch(
           `/api/alarms?offset=${(page - 1) * limit}&limit=${limit}`
@@ -95,8 +216,19 @@ export default function AlarmsPage() {
       }
     };
 
-    fetchAlarms();
-  }, [page]);
+    if (!wsConnected) {
+      fetchAlarmsFromAPI();
+
+      setTimeout(() => {
+        if (!wsConnected) {
+        }
+      }, 1000);
+    }
+
+    return () => {
+      if (wsTimeout) clearTimeout(wsTimeout);
+    };
+  }, [page, wsConnected]);
 
   function sortAlarms(list: Alarm[]) {
     return [...list].sort((a, b) => {
@@ -123,9 +255,12 @@ export default function AlarmsPage() {
 
   const filteredAlarms = sortAlarms(
     alarms.filter((alarm) => {
+      const traceId = alarm.trace_id || "";
+      const summary = alarm.summary || "";
+
       const matchSearch =
-        alarm.trace_id.toLowerCase().includes(search.toLowerCase()) ||
-        alarm.summary.toLowerCase().includes(search.toLowerCase());
+        traceId.toLowerCase().includes(search.toLowerCase()) ||
+        summary.toLowerCase().includes(search.toLowerCase());
 
       const matchStatus =
         statusFilter === "all" ||
@@ -236,10 +371,29 @@ export default function AlarmsPage() {
           </div>
         </motion.div>
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
-          <div className="text-slate-400 text-sm font-mono">
-            총 {total}개 알람{" "}
-            {filteredAlarms.length !== alarms.length &&
-              `(필터링됨: ${filteredAlarms.length}개)`}
+          <div className="flex items-center gap-4">
+            <div className="text-slate-400 text-sm font-mono">
+              총 {total}개 알람{" "}
+              {filteredAlarms.length !== alarms.length &&
+                `(필터링됨: ${filteredAlarms.length}개)`}
+            </div>
+
+            {/* WebSocket 연결 상태 표시 */}
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  wsConnected ? "bg-green-500" : "bg-red-500"
+                }`}
+              ></div>
+              <span className="text-xs font-mono text-slate-400">
+                {wsConnected ? "실시간 연결됨" : "실시간 연결 끊김"}
+              </span>
+              {wsError && (
+                <span className="text-xs font-mono text-red-400">
+                  ({wsError})
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex flex-row gap-2 w-full md:w-auto">
             <input
@@ -381,10 +535,27 @@ export default function AlarmsPage() {
                 <motion.div
                   key={`${alarm.trace_id}-${alarm.detected_at}-${idx}`}
                   initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.1 }}
-                  className="bg-slate-800/60 border border-slate-700/50 rounded-lg p-6 cursor-pointer hover:bg-slate-800/80 hover:border-slate-600/50 transition-all duration-200 hover:shadow-lg hover:shadow-slate-900/50"
+                  animate={{
+                    opacity: 1,
+                    y: 0,
+                    scale: alarm.isUpdated ? 1.02 : 1,
+                    borderColor: alarm.isUpdated
+                      ? "rgb(59 130 246)"
+                      : "rgb(51 65 85)",
+                  }}
+                  transition={{
+                    delay: idx * 0.1,
+                    duration: alarm.isUpdated ? 0.3 : 0.2,
+                  }}
+                  className={`rounded-lg p-6 cursor-pointer transition-all duration-200 hover:shadow-lg hover:shadow-slate-900/50 ${
+                    alarm.isUpdated
+                      ? "bg-blue-900/20 border-2 border-blue-500/50 shadow-lg shadow-blue-500/20"
+                      : "bg-slate-800/60 border border-slate-700/50 hover:bg-slate-800/80 hover:border-slate-600/50"
+                  }`}
                   onClick={() => router.push(`/alarms/${alarm.trace_id}`)}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  layout
                 >
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex-1">
@@ -429,26 +600,34 @@ export default function AlarmsPage() {
                     <div>
                       <div className="text-xs text-slate-400 mb-1">제품</div>
                       <div className="flex items-center gap-2">
-                        {alarm.os.toLowerCase().includes("windows") ? (
-                          <img
-                            src="/windows.webp"
-                            alt="Windows"
-                            className="w-4 h-4 object-contain"
-                          />
-                        ) : alarm.os.toLowerCase().includes("linux") ? (
-                          <img
-                            src="/linux.png"
-                            alt="Linux"
-                            className="w-4 h-4 object-contain"
-                          />
-                        ) : null}
-                        <span className="text-sm text-slate-200 font-mono">
-                          {alarm.os.toLowerCase().includes("windows")
-                            ? "windows"
-                            : alarm.os.toLowerCase().includes("linux")
-                            ? "linux"
-                            : alarm.os}
-                        </span>
+                        {(() => {
+                          const os = alarm.os || "unknown";
+                          const osLower = os.toLowerCase();
+                          return (
+                            <>
+                              {osLower.includes("windows") ? (
+                                <img
+                                  src="/windows.webp"
+                                  alt="Windows"
+                                  className="w-4 h-4 object-contain"
+                                />
+                              ) : osLower.includes("linux") ? (
+                                <img
+                                  src="/linux.png"
+                                  alt="Linux"
+                                  className="w-4 h-4 object-contain"
+                                />
+                              ) : null}
+                              <span className="text-sm text-slate-200 font-mono">
+                                {osLower.includes("windows")
+                                  ? "windows"
+                                  : osLower.includes("linux")
+                                  ? "linux"
+                                  : os}
+                              </span>
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
                     <div>
@@ -464,7 +643,7 @@ export default function AlarmsPage() {
                         호스트명
                       </div>
                       <div className="text-sm text-slate-200 font-mono truncate">
-                        {alarm.host}
+                        {alarm.host || "unknown"}
                       </div>
                     </div>
                     <div>
@@ -472,7 +651,7 @@ export default function AlarmsPage() {
                         Trace ID
                       </div>
                       <div className="text-xs text-cyan-400 break-all font-mono">
-                        {alarm.trace_id}
+                        {alarm.trace_id || "unknown"}
                       </div>
                     </div>
                   </div>
