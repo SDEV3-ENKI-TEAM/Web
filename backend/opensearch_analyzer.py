@@ -1,22 +1,56 @@
 from opensearchpy import OpenSearch
 from typing import Dict, List
 from dotenv import load_dotenv
+import os
+from pathlib import Path
 
-load_dotenv()
+try:
+    env_path = Path(__file__).parent / '.env'
+    load_dotenv(env_path, encoding='utf-8')
+except Exception as e:
+    print(f".env 파일 로드 중 오류: {e}")
+    try:
+        load_dotenv(env_path, encoding='cp949')
+    except Exception as e2:
+        print(f"cp949 인코딩도 실패: {e2}")
+        load_dotenv()
 
 class OpenSearchAnalyzer:
     def __init__(self, hosts=None):
-        """OpenSearch 클라이언트를 초기화합니다 (EventAgent용)."""
+        """OpenSearch 클라이언트를 초기화합니다 (AWS OpenSearch용)."""
         if not hosts:
-            hosts = [{'host': 'localhost', 'port': 9200}]
+            opensearch_host = os.getenv('OPENSEARCH_HOST', 'localhost')
+            opensearch_port = int(os.getenv('OPENSEARCH_PORT', 9200))
+            opensearch_use_ssl = os.getenv('OPENSEARCH_USE_SSL', 'false').lower() == 'true'
+            opensearch_verify_certs = os.getenv('OPENSEARCH_VERIFY_CERTS', 'false').lower() == 'true'
+
+            aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')
+            aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+            aws_region = os.getenv('AWS_REGION', 'ap-northeast-2')
+
+            opensearch_username = os.getenv('OPENSEARCH_USERNAME')
+            opensearch_password = os.getenv('OPENSEARCH_PASSWORD')
+
+            if opensearch_host.startswith('https://'):
+                opensearch_host = opensearch_host.replace('https://', '')
+            elif opensearch_host.startswith('http://'):
+                opensearch_host = opensearch_host.replace('http://', '')
+            
+            hosts = [{'host': opensearch_host, 'port': opensearch_port}]
+            
+            http_auth = (opensearch_username, opensearch_password) if opensearch_username and opensearch_password else None
         
         self.client = OpenSearch(
             hosts=hosts,
+            http_auth=http_auth,
             http_compress=True,
-            use_ssl=False,
-            verify_certs=False,
+            use_ssl=opensearch_use_ssl,
+            verify_certs=opensearch_verify_certs,
             ssl_assert_hostname=False,
-            ssl_show_warn=False
+            ssl_show_warn=False,
+            timeout=30,
+            max_retries=3,
+            retry_on_timeout=True
         )
         
     def check_jaeger_indices(self) -> Dict:
@@ -53,27 +87,6 @@ class OpenSearchAnalyzer:
             }
         except Exception as e:
             return {"status": "error", "message": str(e)}
-    
-    def get_jaeger_spans(self, limit: int = 100, offset: int = 0) -> Dict:
-        """Jaeger 스팬 데이터를 가져옵니다."""
-        query = {
-            "query": {"match_all": {}},
-            "sort": [{"startTime": {"order": "desc"}}],
-            "size": limit,
-            "from": offset
-        }
-        
-        try:
-            response = self.client.search(index="jaeger-span-*", body=query)
-            return {
-                "hits": response['hits']['hits'],
-                "total": response['hits']['total']['value'] if 'total' in response['hits'] else len(response['hits']['hits'])
-            }
-        except Exception as e:
-            print(f"Jaeger 스팬 검색 오류: {e}")
-            return {"hits": [], "total": 0}
-    
-
     
     def extract_process_from_operation_name(self, operation_name: str) -> str:
         """operationName에서 프로세스 정보를 추출합니다."""
@@ -292,5 +305,44 @@ class OpenSearchAnalyzer:
             source = span['_source']
             events.append(source)
         return events
+    
+    def test_connection(self) -> Dict:
+        """AWS OpenSearch 연결을 테스트합니다."""
+        try:
+            # 클러스터 정보 가져오기
+            info = self.client.info()
+            
+            # 인덱스 목록 가져오기
+            indices = self.client.cat.indices(format="json")
+            
+            return {
+                "status": "success",
+                "message": "AWS OpenSearch 연결 성공",
+                "cluster_info": {
+                    "cluster_name": info.get('cluster_name', 'unknown'),
+                    "version": info.get('version', {}).get('number', 'unknown')
+                },
+                "indices_count": len(indices),
+                "indices": [index['index'] for index in indices[:10]]  # 처음 10개만
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"AWS OpenSearch 연결 실패: {str(e)}",
+                "error_details": str(e)
+            }
+    
+    def get_connection_info(self) -> Dict:
+        """현재 연결 설정 정보를 반환합니다."""
+        import os
+        return {
+            "host": os.getenv('OPENSEARCH_HOST', 'localhost'),
+            "port": os.getenv('OPENSEARCH_PORT', '9200'),
+            "use_ssl": os.getenv('OPENSEARCH_USE_SSL', 'false'),
+            "verify_certs": os.getenv('OPENSEARCH_VERIFY_CERTS', 'false'),
+            "region": os.getenv('AWS_REGION', 'ap-northeast-2'),
+            "has_aws_credentials": bool(os.getenv('AWS_ACCESS_KEY_ID') and os.getenv('AWS_SECRET_ACCESS_KEY')),
+            "has_basic_auth": bool(os.getenv('OPENSEARCH_USERNAME') and os.getenv('OPENSEARCH_PASSWORD'))
+        }
     
  

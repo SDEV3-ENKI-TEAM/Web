@@ -16,7 +16,7 @@ class JaegerKafkaBridge:
     """Jaeger에서 Trace 데이터를 수집하여 Kafka로 전송하는 브리지"""
     
     def __init__(self, 
-                 jaeger_url: str = "http://localhost:16686",
+                 jaeger_url: str = "http://3.36.80.36:16686",
                  kafka_broker: str = "localhost:9092",
                  kafka_topic: str = "traces",
                  poll_interval: int = 2,
@@ -293,7 +293,7 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='Jaeger → Kafka Bridge')
-    parser.add_argument('--jaeger-url', default='http://localhost:16686', help='Jaeger URL')
+    parser.add_argument('--jaeger-url', default='http://3.36.80.36:16686', help='Jaeger URL')
     parser.add_argument('--kafka-broker', default='localhost:9092', help='Kafka 브로커')
     parser.add_argument('--kafka-topic', default='traces', help='Kafka 토픽')
     parser.add_argument('--poll-interval', type=int, default=5, help='폴링 간격 (초)')

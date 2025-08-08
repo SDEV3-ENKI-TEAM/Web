@@ -11,7 +11,7 @@ export interface SignupRequest {
 
 export interface JwtResponse {
   token: string;
-  type: string;
+  refresh_token: string;
   id: number;
   username: string;
   roles: string[];

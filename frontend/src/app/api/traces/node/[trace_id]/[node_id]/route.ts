@@ -7,8 +7,17 @@ export async function GET(
   const { trace_id, node_id } = params;
 
   try {
+    // Authorization 헤더 추출
+    const authHeader = req.headers.get("authorization");
+
     const backendRes = await fetch(
-      `http://localhost:8003/api/traces/node/${trace_id}/${node_id}`
+      `http://localhost:8003/api/traces/node/${trace_id}/${node_id}`,
+      {
+        headers: {
+          Authorization: authHeader || "",
+          "Content-Type": "application/json",
+        },
+      }
     );
     const data = await backendRes.json();
     return NextResponse.json(data, { status: backendRes.status });

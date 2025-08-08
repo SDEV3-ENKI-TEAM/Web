@@ -6,7 +6,7 @@ import {
 } from "@/types/auth";
 import axiosInstance from "./axios";
 
-const API_BASE_URL = "http://localhost:8080/api/auth";
+const API_BASE_URL = "http://localhost:8003/api/auth";
 
 export async function login(credentials: LoginRequest): Promise<JwtResponse> {
   try {

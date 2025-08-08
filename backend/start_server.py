@@ -1,20 +1,12 @@
 import uvicorn
+import os
+from dotenv import load_dotenv
+from pathlib import Path
 from security_api import app
 
-if __name__ == "__main__":
-    print("EventAgent 백엔드 API 서버 시작...")
-    print("OpenSearch 연결 테스트...")
-    
+load_dotenv(dotenv_path=Path(__file__).with_name(".env"), encoding="utf-8")
 
-    try:
-        from opensearch_analyzer import OpenSearchAnalyzer
-        analyzer = OpenSearchAnalyzer()
-        status = analyzer.check_jaeger_indices()
-        
-    except Exception as e:
-        print(f"OpenSearch 연결 실패: {e}")
-    
-    print("서버 시작 중... http://127.0.0.1:8003")
+if __name__ == "__main__":
     
     uvicorn.run(
         "security_api:app",

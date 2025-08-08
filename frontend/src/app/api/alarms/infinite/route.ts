@@ -1,12 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const offset = searchParams.get("offset") || "0";
-  const limit = searchParams.get("limit") || "50";
+  const cursor = searchParams.get("cursor");
+  const limit = searchParams.get("limit") || "20";
 
-  const backendUrl = `http://localhost:8003/api/alarms?offset=${offset}&limit=${limit}`;
+  const backendUrl = cursor
+    ? `http://localhost:8003/api/alarms/infinite?limit=${limit}&cursor=${encodeURIComponent(
+        cursor
+      )}`
+    : `http://localhost:8003/api/alarms/infinite?limit=${limit}`;
 
   try {
     // 쿠키에서 토큰 가져오기
@@ -31,13 +35,11 @@ export async function GET(request: Request) {
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error("/api/alarms 백엔드 연동 실패:", error);
+    console.error("/api/alarms/infinite 백엔드 연동 실패:", error);
     return NextResponse.json({
       alarms: [],
-      total: 0,
-      offset: parseInt(offset),
-      limit: parseInt(limit),
       hasMore: false,
+      nextCursor: null,
     });
   }
 }

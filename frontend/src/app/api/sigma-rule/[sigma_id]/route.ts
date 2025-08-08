@@ -8,7 +8,16 @@ export async function GET(
   const backendUrl = `http://localhost:8003/api/sigma-rule/${sigmaId}`;
 
   try {
-    const response = await fetch(backendUrl);
+    // Authorization 헤더 추출
+    const authHeader = request.headers.get("authorization");
+
+    const response = await fetch(backendUrl, {
+      headers: {
+        Authorization: authHeader || "",
+        "Content-Type": "application/json",
+      },
+    });
+
     if (!response.ok) throw new Error("백엔드 요청 실패");
     const data = await response.json();
     return NextResponse.json(data);

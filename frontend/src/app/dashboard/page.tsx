@@ -15,7 +15,13 @@ import EventDetail from "@/components/EventDetail";
 import BarChart from "@/components/BarChart";
 import HeatMap from "@/components/HeatMap";
 import DashboardSettings from "@/components/DashboardSettings";
-import { fetchStats } from "@/lib/api";
+import {
+  fetchStats,
+  fetchTimeseries,
+  fetchBarChart,
+  fetchHeatMap,
+  fetchInfiniteAlarms,
+} from "@/lib/api";
 import { Event, Stats, EventDetail as EventDetailType } from "@/types/event";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
@@ -66,12 +72,10 @@ export default function Dashboard() {
     const loadInfiniteAlarms = async () => {
       try {
         setInfiniteLoading(true);
-        const response = await fetch("/api/alarms/infinite?limit=20");
-        if (!response.ok) throw new Error("무한스크롤 데이터 요청 실패");
-        const data = await response.json();
+        const data = await fetchInfiniteAlarms(20);
         setInfiniteAlarms(data.alarms || []);
-        setCursor(data.next_cursor);
-        setHasMore(data.has_more);
+        setCursor(data.nextCursor);
+        setHasMore(data.hasMore);
       } catch (err) {
         console.error("무한스크롤 데이터 로드 실패:", err);
         setInfiniteAlarms([]);
@@ -88,17 +92,11 @@ export default function Dashboard() {
 
     try {
       setInfiniteLoading(true);
-      const url = cursor
-        ? `/api/alarms/infinite?limit=20&cursor=${encodeURIComponent(cursor)}`
-        : "/api/alarms/infinite?limit=20";
-
-      const response = await fetch(url);
-      if (!response.ok) throw new Error("추가 데이터 요청 실패");
-      const data = await response.json();
+      const data = await fetchInfiniteAlarms(20, cursor || undefined);
 
       setInfiniteAlarms((prev) => [...prev, ...(data.alarms || [])]);
-      setCursor(data.next_cursor);
-      setHasMore(data.has_more);
+      setCursor(data.nextCursor);
+      setHasMore(data.hasMore);
     } catch (err) {
       console.error("추가 데이터 로드 실패:", err);
     } finally {
@@ -107,11 +105,9 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    const fetchTimeseries = async () => {
+    const fetchTimeseriesData = async () => {
       try {
-        const res = await fetch("/api/timeseries");
-        if (!res.ok) throw new Error("시계열 데이터 요청 실패");
-        const data = await res.json();
+        const data = await fetchTimeseries();
         setTimeseriesData(data);
       } catch (err) {
         console.error("시계열 데이터 로드 실패:", err);
@@ -119,9 +115,9 @@ export default function Dashboard() {
       }
     };
 
-    fetchTimeseries();
+    fetchTimeseriesData();
 
-    const interval = setInterval(fetchTimeseries, 10000);
+    const interval = setInterval(fetchTimeseriesData, 10000);
 
     return () => clearInterval(interval);
   }, []);
@@ -129,9 +125,7 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchBarChartData = async () => {
       try {
-        const res = await fetch("/api/bar-chart");
-        if (!res.ok) throw new Error("바 차트 데이터 요청 실패");
-        const data = await res.json();
+        const data = await fetchBarChart();
         setBarChartData(data);
       } catch (err) {
         console.error("바 차트 데이터 로드 실패:", err);
@@ -145,9 +139,7 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchHeatMapData = async () => {
       try {
-        const res = await fetch("/api/heatmap");
-        if (!res.ok) throw new Error("히트맵 데이터 요청 실패");
-        const data = await res.json();
+        const data = await fetchHeatMap();
         setHeatMapData(data);
       } catch (err) {
         console.error("히트맵 데이터 로드 실패:", err);

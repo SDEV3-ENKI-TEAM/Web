@@ -13,10 +13,15 @@ export async function POST(request: NextRequest) {
     }
 
     const backendUrl = "http://localhost:8003/api/alarms/check";
+
+    // Authorization 헤더 추출
+    const authHeader = request.headers.get("authorization");
+
     const response = await fetch(backendUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: authHeader || "",
       },
       body: JSON.stringify({ trace_id, checked }),
     });

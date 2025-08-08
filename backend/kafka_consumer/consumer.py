@@ -1,11 +1,9 @@
 import json
 import logging
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime, timezone, timedelta
-
 from kafka import KafkaConsumer
-from kafka.errors import KafkaError
 import redis
 from pymongo import MongoClient
 
@@ -116,6 +114,7 @@ class TraceConsumer:
  
             existing_data = self.valkey_client.get(f"trace:{trace_id}")
             is_update = False
+            baseline_only = False
             
             if existing_data:
                 existing = json.loads(existing_data)
@@ -125,11 +124,11 @@ class TraceConsumer:
                     is_update = True
                     logger.info(f"Trace 업데이트: {trace_id} ({existing_span_count} → {current_span_count}개)")
                 elif current_span_count == existing_span_count:
-                    logger.debug(f"중복 Trace 무시: {trace_id}")
-                    return True
+                    baseline_only = True
+                    logger.debug(f"동일 span_count 관측: {trace_id} ({existing_span_count} == {current_span_count})")
                 else:
-                    logger.debug(f"이전 데이터 유지: {trace_id}")
-                    return True
+                    baseline_only = True
+                    logger.debug(f"감소 관측: {trace_id} ({existing_span_count} → {current_span_count})")
             else:
                 logger.info(f"새로운 Trace: {trace_id} ({current_span_count}개)")
             
@@ -137,29 +136,38 @@ class TraceConsumer:
 
             trace_key = f"trace:{trace_id}"
 
+            # 항상 기준선은 최신 관측값으로 갱신
             self.valkey_client.set(trace_key, json.dumps(alarm_card, ensure_ascii=False))
+            self.valkey_client.expire(trace_key, 86400)
 
             alarm_key = "recent_alarms"
             
             if is_update:
+                # 증가 시에는 기존 카드 제거 후 최신 카드로 교체
                 self.valkey_client.lrem(alarm_key, 0, existing_data)
-            
-            self.valkey_client.lpush(alarm_key, json.dumps(alarm_card, ensure_ascii=False))
-            self.valkey_client.ltrim(alarm_key, 0, 99)
+                self.valkey_client.lpush(alarm_key, json.dumps(alarm_card, ensure_ascii=False))
+                self.valkey_client.ltrim(alarm_key, 0, 99)
+            elif not existing_data:
+                # 신규만 리스트 추가
+                self.valkey_client.lpush(alarm_key, json.dumps(alarm_card, ensure_ascii=False))
+                self.valkey_client.ltrim(alarm_key, 0, 99)
+            else:
+                # 동일/감소는 리스트/이벤트 비발행 (기준선만 갱신)
+                logger.debug(f"기준선만 갱신: {trace_id} (span_count={current_span_count})")
 
-            self.valkey_client.expire(trace_key, 86400)
+            # 웹소켓 이벤트는 신규/증가에만 발행
+            if not existing_data or is_update:
+                event_type = "trace_update" if is_update else "new_trace"
+                event_data = {
+                    "type": event_type,
+                    "trace_id": trace_id,
+                    "data": alarm_card,
+                    "timestamp": int(time.time() * 1000)
+                }
 
-            event_type = "trace_update" if is_update else "new_trace"
-            event_data = {
-                "type": event_type,
-                "trace_id": trace_id,
-                "data": alarm_card,
-                "timestamp": int(time.time() * 1000)
-            }
-
-            event_key = "websocket_events"
-            self.valkey_client.lpush(event_key, json.dumps(event_data, ensure_ascii=False))
-            self.valkey_client.ltrim(event_key, 0, 999)
+                event_key = "websocket_events"
+                self.valkey_client.lpush(event_key, json.dumps(event_data, ensure_ascii=False))
+                self.valkey_client.ltrim(event_key, 0, 999)
             
             logger.info(f"Trace 저장 완료: {trace_id} - {alarm_card['summary']}")
             return True

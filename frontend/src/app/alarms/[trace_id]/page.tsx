@@ -14,6 +14,7 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import { useParams } from "next/navigation";
 import CustomNode from "@/components/CustomNode";
+import axiosInstance from "@/lib/axios";
 
 interface Trace {
   trace_id: string;
@@ -154,11 +155,8 @@ function AlarmDetailContent() {
 
   const fetchSigmaTitle = async (sigmaId: string) => {
     try {
-      const response = await fetch(`/api/sigma-rule/${sigmaId}`);
-      if (response.ok) {
-        const data = await response.json();
-        return data.title || sigmaId;
-      }
+      const response = await axiosInstance.get(`/sigma-rule/${sigmaId}`);
+      return response.data.title || sigmaId;
     } catch (error) {
       console.error("Sigma rule 조회 실패:", error);
     }
@@ -247,8 +245,8 @@ function AlarmDetailContent() {
     const fetchTrace = async () => {
       setIsLoading(true);
       try {
-        const res = await fetch(`/api/traces/search/${trace_id}`);
-        const data = await res.json();
+        const res = await axiosInstance.get(`/traces/search/${trace_id}`);
+        const data = res.data;
         setTrace(data.data || null);
 
         if (data.data && data.data.events) {

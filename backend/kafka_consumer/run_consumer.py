@@ -1,10 +1,4 @@
-#!/usr/bin/env python3
-"""
-Kafka Consumer 실행 스크립트
-"""
-
 import sys
-import os
 import logging
 from pathlib import Path
 

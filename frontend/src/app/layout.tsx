@@ -3,6 +3,8 @@ import "./theme.css";
 import type { Metadata } from "next";
 import { AuthProvider } from "@/context/AuthContext";
 import { DashboardProvider } from "@/context/DashboardContext";
+import { WebSocketProvider } from "@/contexts/WebSocketContext";
+import GlobalNotification from "@/components/GlobalNotification";
 
 export const metadata: Metadata = {
   title: "AI Detector - 악성프로세스 탐지 시스템",
@@ -18,7 +20,12 @@ export default function RootLayout({
     <html lang="ko" className="h-full">
       <body className="h-full bg-app-background text-app-text">
         <AuthProvider>
-          <DashboardProvider>{children}</DashboardProvider>
+          <DashboardProvider>
+            <WebSocketProvider>
+              {children}
+              <GlobalNotification />
+            </WebSocketProvider>
+          </DashboardProvider>
         </AuthProvider>
       </body>
     </html>
