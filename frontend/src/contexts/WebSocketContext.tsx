@@ -17,7 +17,7 @@ interface Alarm {
   os: string;
   checked: boolean;
   sigma_alert?: string;
-  span_count?: number;
+  matched_span_count?: number;
   ai_summary?: string;
   severity?: string;
   severity_score?: number;
@@ -93,7 +93,17 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
 
     const connectWebSocket = () => {
       try {
-        wsInstance = new WebSocket("ws://localhost:8004/ws/alarms?limit=100");
+        const token = localStorage.getItem("token");
+        if (!token) {
+          console.error("JWT 토큰이 없습니다. WebSocket 연결을 건너뜁니다.");
+          setWsError("로그인이 필요합니다");
+          return;
+        }
+
+        const wsUrl = `ws://localhost:8004/ws/alarms?token=${encodeURIComponent(
+          token
+        )}&limit=100`;
+        wsInstance = new WebSocket(wsUrl);
 
         wsInstance.onopen = () => {
           console.log("WebSocket 연결 성공");
@@ -181,9 +191,16 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
           }
         };
 
-        wsInstance.onclose = () => {
-          console.log("WebSocket 연결 해제");
+        wsInstance.onclose = (event) => {
+          console.log("WebSocket 연결 해제:", event.code, event.reason);
           setWsConnected(false);
+
+          // JWT 토큰 관련 오류인 경우 재연결하지 않음
+          if (event.code === 4001 || event.code === 4002) {
+            console.error("JWT 토큰 오류:", event.reason);
+            setWsError("인증 오류: " + event.reason);
+            return;
+          }
 
           // 자동 재연결
           reconnectTimeout = setTimeout(() => {
@@ -195,14 +212,13 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
         wsInstance.onerror = (error) => {
           console.error("WebSocket 오류:", error);
           setWsError("WebSocket 연결 오류");
-          setWsConnected(false);
         };
 
         setWs(wsInstance);
       } catch (e) {
         console.error("WebSocket 연결 실패:", e);
         setWsError("WebSocket 연결 실패");
-        setWsConnected(false);
+        connectWebSocket();
       }
     };
 

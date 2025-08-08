@@ -14,7 +14,7 @@ interface Alarm {
   os: string;
   checked: boolean;
   sigma_alert?: string;
-  span_count?: number;
+  matched_span_count?: number;
   ai_summary?: string;
   severity?: string;
   severity_score?: number;
@@ -264,7 +264,17 @@ export default function AlarmsPage() {
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex-1">
                           <h3 className="text-lg font-bold text-slate-100 mb-2">
-                            {alarm.sigma_rule_title || alarm.summary}
+                            {alarm.sigma_rule_title ? (
+                              <>
+                                {alarm.sigma_rule_title}
+                                <span className="text-sm font-normal text-slate-400">
+                                  {" "}
+                                  ({alarm.trace_id})
+                                </span>
+                              </>
+                            ) : (
+                              alarm.summary
+                            )}
                           </h3>
                           <div className="flex items-center gap-3">
                             <span
@@ -341,7 +351,7 @@ export default function AlarmsPage() {
                             룰 매칭 개수
                           </div>
                           <div className="text-sm text-slate-200 font-mono">
-                            {alarm.span_count || 0}개
+                            {alarm.matched_span_count || 0}개
                           </div>
                         </div>
                         <div>
@@ -352,16 +362,7 @@ export default function AlarmsPage() {
                             {alarm.host || "unknown"}
                           </div>
                         </div>
-                        <div>
-                          <div className="text-xs text-slate-400 mb-1">
-                            Trace ID
-                          </div>
-                          <div className="text-sm text-slate-200 font-mono truncate">
-                            {alarm.trace_id || "unknown"}
-                          </div>
-                        </div>
                       </div>
-
                       <div className="text-xs text-slate-400">
                         {alarm.ai_summary || "AI 요약 없음"}
                       </div>

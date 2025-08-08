@@ -1,6 +1,5 @@
 import { Stats } from "@/types/event";
 
-// 인증 토큰을 포함한 API 호출 함수
 async function fetchWithAuth(url: string, options: RequestInit = {}) {
   const token = localStorage.getItem("token");
 
@@ -19,7 +18,6 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
   });
 
   if (response.status === 401) {
-    // 토큰이 만료되었거나 유효하지 않은 경우
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     sessionStorage.removeItem("refreshToken");

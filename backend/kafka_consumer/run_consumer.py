@@ -1,11 +1,11 @@
-import sys
 import logging
+import sys
 from pathlib import Path
+
+from kafka_consumer.consumer import TraceConsumer
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-
-from kafka_consumer.consumer import TraceConsumer
 
 def main():
     """Consumer 실행"""
@@ -21,7 +21,6 @@ def main():
     
     args = parser.parse_args()
     
-    # ─── 로깅 설정 ───────────────────────────────────────────
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper()),
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'

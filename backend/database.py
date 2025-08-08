@@ -1,9 +1,10 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.sql import func
 import os
+from typing import Generator
+
 from dotenv import load_dotenv
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, create_engine, func
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import Session, sessionmaker
 
 load_dotenv()
 
@@ -19,7 +20,7 @@ engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-def get_db():
+def get_db() -> Generator[Session, None, None]:
     """데이터베이스 세션 의존성"""
     db = SessionLocal()
     try:

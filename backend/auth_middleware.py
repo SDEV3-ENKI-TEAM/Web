@@ -1,8 +1,11 @@
+from typing import List, Optional
+
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
-from database import get_db, User, UserRole
-from jwt_utils import verify_token, get_user_id_from_token, get_username_from_token, decode_jwt
+
+from database import User, UserRole, get_db
+from jwt_utils import decode_jwt, get_username_from_token, get_user_id_from_token, verify_token
 from user_models import TokenPayload
 
 security = HTTPBearer()
@@ -96,48 +99,4 @@ def get_current_user_new(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token"
-        )
-
-def get_current_user_with_roles_new(
-    payload: TokenPayload = Depends(get_current_user_new),
-    db: Session = Depends(get_db)
-) -> dict:
-    """새로운 시스템을 사용하여 사용자 정보와 역할을 반환"""
-    role_names = _get_user_roles_from_db(payload.user_id, db)
-    
-    return {
-        "id": payload.user_id,
-        "username": payload.sub,
-        "roles": role_names,
-        "token_roles": payload.roles
-    }
-
-get_current_user = get_current_user_new
-get_current_user_with_roles = get_current_user_with_roles_new
-
-async def get_current_user_id(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
-) -> int:
-    """토큰에서 사용자 ID만 추출하는 의존성 함수"""
-    token = credentials.credentials
-    user_id = get_user_id_from_token(token)
-    
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="유효하지 않은 토큰",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    return user_id
-
-def require_role(required_role: str):
-    """특정 역할이 필요한 API를 위한 데코레이터"""
-    def role_checker(current_user: dict = Depends(get_current_user)):
-        if required_role not in current_user["roles"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="접근 권한이 없습니다"
-            )
-        return current_user
-    return role_checker 
+        ) 

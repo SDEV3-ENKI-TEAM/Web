@@ -1,10 +1,10 @@
+import axiosInstance, { setAuthToken } from "./axios";
 import {
-  LoginRequest,
-  SignupRequest,
   JwtResponse,
+  LoginRequest,
   MessageResponse,
+  SignupRequest,
 } from "@/types/auth";
-import axiosInstance from "./axios";
 
 const API_BASE_URL = "http://localhost:8003/api/auth";
 
@@ -15,6 +15,8 @@ export async function login(credentials: LoginRequest): Promise<JwtResponse> {
     if (!token) {
       throw new Error("토큰이 응답에 포함되어 있지 않습니다.");
     }
+    setAuthToken(token);
+
     return {
       ...response.data,
       token: token,

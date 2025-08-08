@@ -155,8 +155,23 @@ function AlarmDetailContent() {
 
   const fetchSigmaTitle = async (sigmaId: string) => {
     try {
-      const response = await axiosInstance.get(`/sigma-rule/${sigmaId}`);
-      return response.data.title || sigmaId;
+      const storedToken = localStorage.getItem("token");
+      const response = await fetch(
+        `http://localhost:8003/api/sigma-rule/${sigmaId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${storedToken}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.title || sigmaId;
     } catch (error) {
       console.error("Sigma rule 조회 실패:", error);
     }
@@ -245,8 +260,23 @@ function AlarmDetailContent() {
     const fetchTrace = async () => {
       setIsLoading(true);
       try {
-        const res = await axiosInstance.get(`/traces/search/${trace_id}`);
-        const data = res.data;
+        const storedToken = localStorage.getItem("token");
+
+        const response = await fetch(
+          `http://localhost:8003/api/traces/search/${trace_id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${storedToken}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
         setTrace(data.data || null);
 
         if (data.data && data.data.events) {

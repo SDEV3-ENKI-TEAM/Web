@@ -1,19 +1,28 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
-from typing import List
+import hashlib
 import secrets
 import string
-import hashlib
 from datetime import datetime, timedelta
+from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
-from database import get_db, User, UserRole, Agent, RefreshToken
-from user_models import LoginRequest, SignupRequest, JwtResponse, MessageResponse, UserResponse
-from jwt_utils import verify_password, get_password_hash, create_access_token, create_refresh_token, verify_token, verify_refresh_token, invalidate_token
+from database import Agent, RefreshToken, User, UserRole, get_db
+from jwt_utils import (
+    create_access_token,
+    create_refresh_token,
+    invalidate_token,
+    verify_password,
+    get_password_hash,
+    verify_token,
+    verify_refresh_token,
+)
+from user_models import JwtResponse, LoginRequest, MessageResponse, SignupRequest, UserResponse
 
 router = APIRouter(prefix="/api/auth", tags=["authentication"])
 

@@ -1,19 +1,23 @@
 import json
-import os
 import logging
-from auth_deps import get_current_user_with_roles
+import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 from dotenv import load_dotenv
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Dict, Optional, Any
-from datetime import datetime, timedelta, timezone
-from opensearch_analyzer import OpenSearchAnalyzer
 from pymongo import MongoClient
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+
+from auth_api import router as auth_router
+from auth_deps import get_current_user_with_roles
+from opensearch_analyzer import OpenSearchAnalyzer
+
 try:
     env_path = Path(__file__).parent / '.env'
     load_dotenv(env_path, encoding='utf-8')
@@ -24,8 +28,6 @@ except Exception as e:
     except Exception as e2:
         print(f"cp949 인코딩도 실패: {e2}")
         load_dotenv()
-
-from auth_api import router as auth_router
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -69,9 +71,7 @@ try:
     mongo_client = MongoClient(MONGO_URI)
     mongo_db = mongo_client[MONGO_DB]
     mongo_collection = mongo_db[MONGO_COLLECTION]
-
 except Exception as e:
-
     mongo_client = None
     mongo_collection = None
 
@@ -98,29 +98,20 @@ class LogEntry(BaseModel):
 class SearchQuery(BaseModel):
     query: str
     start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
 
 @app.get("/api/traces/search/{trace_id}")
 async def search_trace_by_id(
     trace_id: str, 
     current_user: dict = Depends(get_current_user_with_roles)
 ):
-    """특정 Trace ID로 트레이스를 검색합니다. 사용자별 필터링 지원."""
+    """특정 Trace ID로 트레이스를 검색합니다."""
     try:
-        user_id = current_user["id"]
-        username = current_user["username"]
-        
+        # 일시적으로 사용자별 필터링 제거 - 모든 trace에 접근 허용
         query = {
             "query": {
                 "bool": {
                     "must": [
-                        {"term": {"traceID": trace_id}},
-                        {"bool": {
-                            "should": [
-                                {"term": {"tag.user_id": str(user_id)}},
-                                {"term": {"tag.user_id": username}}
-                            ]
-                        }}
+                        {"term": {"traceID": trace_id}}
                     ]
                 }
             },
@@ -136,7 +127,7 @@ async def search_trace_by_id(
             return {
                 "data": None,
                 "found": False,
-                "message": f"Trace ID '{trace_id}'에 대한 접근 권한이 없습니다."
+                "message": f"Trace ID '{trace_id}'를 찾을 수 없습니다."
             }
         
         events = opensearch_analyzer.get_process_tree_events(trace_id)
@@ -173,8 +164,6 @@ async def search_trace_by_id(
             "severity": "high" if has_any_alert else "low",
         }
         
-    
-        
         return {
             "data": trace_data,
             "found": True,
@@ -182,7 +171,6 @@ async def search_trace_by_id(
         }
         
     except Exception as e:
-
         return {
             "data": None,
             "found": False,
@@ -442,8 +430,6 @@ async def get_alarms_infinite(
                 "checked": get_alarm_checked_status(trace_id),
                 "user_id": user_id
             })
-        
-        logger.debug(f"OpenSearch 조회 결과: {len(response['hits']['hits'])}개 span → {len(alarms)}개 고유 trace")
         
         return {
             "alarms": alarms[:limit],

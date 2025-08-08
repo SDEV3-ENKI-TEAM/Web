@@ -13,7 +13,7 @@ interface Alarm {
   os: string;
   checked: boolean;
   sigma_alert?: string;
-  span_count?: number;
+  matched_span_count?: number;
   ai_summary?: string;
   severity?: string;
   severity_score?: number;
@@ -102,7 +102,17 @@ export default function GlobalNotification() {
 
                 <div className="mb-2">
                   <div className="text-sm font-medium text-white mb-1">
-                    {notification.sigma_rule_title || notification.summary}
+                    {notification.sigma_rule_title ? (
+                      <>
+                        {notification.sigma_rule_title}
+                        <span className="text-xs font-normal text-slate-400">
+                          {" "}
+                          ({notification.trace_id})
+                        </span>
+                      </>
+                    ) : (
+                      notification.summary
+                    )}
                   </div>
                   <div className="text-xs text-slate-300">
                     Trace ID: {notification.trace_id.slice(0, 8)}...
@@ -111,7 +121,7 @@ export default function GlobalNotification() {
 
                 <div className="flex items-center gap-4 text-xs text-slate-400">
                   <span>호스트: {notification.host}</span>
-                  <span>룰 매칭: {notification.span_count || 0}개</span>
+                  <span>룰 매칭: {notification.matched_span_count || 0}개</span>
                 </div>
               </div>
 

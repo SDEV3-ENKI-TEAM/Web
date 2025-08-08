@@ -1,8 +1,9 @@
 import os
-from opensearchpy import OpenSearch
-from typing import Dict, List
-from dotenv import load_dotenv
 from pathlib import Path
+from typing import Dict, List
+
+from dotenv import load_dotenv
+from opensearchpy import OpenSearch
 
 try:
     env_path = Path(__file__).parent / '.env'

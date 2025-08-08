@@ -32,7 +32,7 @@ interface TimeSeriesChartProps {
     duration: number;
     has_anomaly?: boolean;
     trace_id?: string;
-    span_count?: number;
+    matched_span_count?: number;
     operation_name?: string;
     service_name?: string;
   }>;
@@ -132,8 +132,8 @@ export default function TimeSeriesChart({
             if (item.trace_id) {
               lines.push(`Trace ID: ${item.trace_id}`);
             }
-            if (item.span_count) {
-              lines.push(`Spans: ${item.span_count}개`);
+            if (item.matched_span_count) {
+              lines.push(`Spans: ${item.matched_span_count}개`);
             }
             if (item.operation_name) {
               lines.push(`Operation: ${item.operation_name}`);

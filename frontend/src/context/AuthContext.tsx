@@ -55,7 +55,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         throw new Error("Refresh token not found");
       }
 
-      console.log("🔄 토큰 갱신 시도...");
       const response = await fetch("/api/auth/refresh", {
         method: "POST",
         headers: {
@@ -63,8 +62,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         },
         body: JSON.stringify({ refresh_token: refreshToken }),
       });
-
-      console.log("📡 토큰 갱신 응답 상태:", response.status);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -75,7 +72,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
 
       const data = await response.json();
-      console.log("✅ 토큰 갱신 응답 데이터:", data);
 
       setTokenAndUpdateAxios(data.access_token);
       localStorage.setItem("token", data.access_token); // localStorage 업데이트
@@ -85,8 +81,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       document.cookie = `access_token=${data.access_token}; path=/; max-age=${
         15 * 60
       }; SameSite=Strict`;
-
-      console.log("✅ 토큰 갱신 성공");
     } catch (error) {
       console.error("❌ 토큰 갱신 실패:", error);
       logout();
@@ -98,11 +92,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const storedUser = localStorage.getItem("user");
       const storedToken = localStorage.getItem("token"); // localStorage에서 토큰 확인
 
-      console.log("🔍 초기 인증 확인:", {
-        storedUser,
-        hasToken: !!storedToken,
-      });
-
       if (
         storedUser &&
         storedToken &&
@@ -113,16 +102,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       ) {
         // 토큰 만료 확인
         if (isTokenExpired(storedToken)) {
-          console.log("토큰이 만료되었습니다. 갱신을 시도합니다.");
           await refreshToken();
         } else {
-          console.log("✅ 유효한 토큰 발견, 로그인 상태 설정");
           setCurrentUser(storedUser);
           setTokenAndUpdateAxios(storedToken);
           setIsLoggedIn(true);
         }
       } else {
-        console.log("❌ 저장된 인증 정보 없음, 로그아웃 상태");
         localStorage.removeItem("user");
         localStorage.removeItem("token");
         sessionStorage.removeItem("refreshToken");

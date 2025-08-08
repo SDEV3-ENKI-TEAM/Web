@@ -1,68 +1,130 @@
-#!/usr/bin/env python3
-"""
-실시간 알람 WebSocket 서버
-Valkey에서 WebSocket 이벤트를 읽어서 프론트엔드로 실시간 전송
-"""
-
+import asyncio
 import json
 import logging
-import asyncio
+import os
 import time
-from typing import List, Dict, Any
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import jwt
 import redis
 import uvicorn
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 
-# ─── 로깅 설정 ───────────────────────────────────────────
+try:
+    env_path = Path(__file__).parent.parent / '.env'
+    load_dotenv(env_path, encoding='utf-8')
+except Exception as e:
+    print(f".env 파일 로드 중 오류: {e}")
+    load_dotenv()
+
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+REFRESH_SECRET_KEY = os.getenv("JWT_REFRESH_SECRET_KEY")
+ISSUER = "shitftx"
+AUDIENCE = "shitftx-users"
+
+if not SECRET_KEY or not isinstance(SECRET_KEY, str):
+    raise RuntimeError("JWT_SECRET_KEY not set or invalid")
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
+def verify_jwt_token(token: str) -> Optional[Dict]:
+    """JWT 토큰 검증 및 사용자 정보 반환"""
+    try:
+        payload = jwt.decode(
+            token, 
+            SECRET_KEY, 
+            algorithms=["HS256"],
+            audience=AUDIENCE,
+            issuer=ISSUER,
+            options={"require": ["exp", "sub", "user_id"]}
+        )
+        return {
+            "user_id": payload.get("user_id"),
+            "username": payload.get("sub"),
+            "roles": payload.get("roles", [])
+        }
+    except jwt.ExpiredSignatureError:
+        logger.warning("JWT 토큰 만료")
+        return None
+    except jwt.InvalidTokenError:
+        logger.warning("JWT 토큰 무효")
+        return None
+    except Exception as e:
+        logger.error(f"JWT 토큰 검증 오류: {e}")
+        return None
+
 class WebSocketManager:
-    """WebSocket 연결 관리"""
+    """WebSocket 연결 관리 (사용자별 분리)"""
     
     def __init__(self):
-        self.active_connections: List[WebSocket] = []
+        self.active_connections: Dict[str, List[WebSocket]] = {}
+        self.connection_info: Dict[WebSocket, Dict] = {}
     
-    async def connect(self, websocket: WebSocket):
-        """새로운 WebSocket 연결 추가"""
+    async def connect(self, websocket: WebSocket, user_info: Dict):
+        """새로운 WebSocket 연결 추가 (사용자별 분리)"""
         await websocket.accept()
-        self.active_connections.append(websocket)
-        logger.info(f"🔗 새로운 WebSocket 연결: {len(self.active_connections)}개")
+        user_id = str(user_info["user_id"])
+        
+        if user_id not in self.active_connections:
+            self.active_connections[user_id] = []
+        
+        self.active_connections[user_id].append(websocket)
+        self.connection_info[websocket] = user_info
+        
+        logger.info(f"새로운 WebSocket 연결: 사용자 {user_info['username']} (총 연결 수: {len(self.active_connections[user_id])})")
     
     def disconnect(self, websocket: WebSocket):
         """WebSocket 연결 제거"""
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-            logger.info(f"🔌 WebSocket 연결 해제: {len(self.active_connections)}개")
+        user_info = self.connection_info.get(websocket)
+        if user_info:
+            user_id = str(user_info["user_id"])
+            if user_id in self.active_connections and websocket in self.active_connections[user_id]:
+                self.active_connections[user_id].remove(websocket)
+                if not self.active_connections[user_id]:
+                    del self.active_connections[user_id]
+                logger.info(f"WebSocket 연결 해제: 사용자 {user_info['username']} (남은 연결 수: {len(self.active_connections.get(user_id, []))})")
+            
+            del self.connection_info[websocket]
     
     async def send_personal_message(self, message: str, websocket: WebSocket):
         """개별 클라이언트에게 메시지 전송"""
         try:
             await websocket.send_text(message)
         except Exception as e:
-            logger.error(f"❌ 메시지 전송 실패: {e}")
+            logger.error(f"메시지 전송 실패: {e}")
             self.disconnect(websocket)
     
-    async def broadcast(self, message: str):
-        """모든 연결된 클라이언트에게 메시지 브로드캐스트"""
+    async def broadcast_to_user(self, message: str, user_id: str):
+        """특정 사용자에게만 메시지 브로드캐스트"""
+        if user_id not in self.active_connections:
+            return
+        
         disconnected = []
-        for connection in self.active_connections:
+        for connection in self.active_connections[user_id]:
             try:
                 await connection.send_text(message)
             except Exception as e:
-                logger.error(f"❌ 브로드캐스트 실패: {e}")
+                logger.error(f"사용자별 브로드캐스트 실패: {e}")
                 disconnected.append(connection)
         
-        # 연결이 끊어진 클라이언트 제거
         for connection in disconnected:
             self.disconnect(connection)
+    
+    async def broadcast(self, message: str):
+        """모든 연결된 클라이언트에게 메시지 브로드캐스트 (사용자별 분리)"""
+        for user_id in list(self.active_connections.keys()):
+            await self.broadcast_to_user(message, user_id)
 
 class ValkeyEventReader:
-    """Valkey에서 WebSocket 이벤트를 읽는 클래스"""
+    """Valkey에서 WebSocket 이벤트를 읽는 클래스 (사용자별 분리)"""
     
     def __init__(self, host: str = "localhost", port: int = 6379, db: int = 0):
         self.valkey_client = redis.Redis(
@@ -92,8 +154,8 @@ class ValkeyEventReader:
             logger.error(f"Valkey 이벤트 조회 실패: {e}")
             return []
     
-    def get_recent_alarms(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """최근 알람 데이터 조회"""
+    def get_recent_alarms(self, limit: int = 10, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """최근 알람 데이터 조회 (사용자별 필터링)"""
         try:
             alarms = self.valkey_client.lrange('recent_alarms', 0, limit - 1)
             recent_alarms = []
@@ -101,6 +163,9 @@ class ValkeyEventReader:
             for alarm_str in alarms:
                 try:
                     alarm = json.loads(alarm_str)
+                    # 사용자별 필터링
+                    if user_id and alarm.get('user_id') != user_id:
+                        continue
                     recent_alarms.append(alarm)
                 except json.JSONDecodeError as e:
                     logger.error(f"알람 JSON 파싱 실패: {e}")
@@ -111,7 +176,17 @@ class ValkeyEventReader:
             logger.error(f"Valkey 알람 조회 실패: {e}")
             return []
 
-app = FastAPI(title="실시간 알람 WebSocket 서버", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """애플리케이션 생명주기 관리"""
+    # 시작 시
+    asyncio.create_task(broadcast_events())
+    logger.info("WebSocket 서버 시작")
+    yield
+    # 종료 시
+    logger.info("WebSocket 서버 종료")
+
+app = FastAPI(title="실시간 알람 WebSocket 서버", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -142,7 +217,7 @@ async def health_check():
         return {
             "status": "healthy",
             "valkey_connection": "connected",
-            "active_websockets": len(manager.active_connections)
+            "active_websockets": sum(len(connections) for connections in manager.active_connections.values())
         }
     except Exception as e:
         return {
@@ -151,9 +226,9 @@ async def health_check():
         }
 
 @app.get("/api/alarms/recent")
-async def get_recent_alarms(limit: int = 10):
-    """최근 알람 데이터 조회 (REST API)"""
-    alarms = valkey_reader.get_recent_alarms(limit)
+async def get_recent_alarms(limit: int = 10, user_id: Optional[str] = None):
+    """최근 알람 데이터 조회 (REST API) - 사용자별 필터링"""
+    alarms = valkey_reader.get_recent_alarms(limit, user_id)
     return {
         "alarms": alarms,
         "count": len(alarms)
@@ -161,22 +236,34 @@ async def get_recent_alarms(limit: int = 10):
 
 @app.websocket("/ws/alarms")
 async def websocket_endpoint(websocket: WebSocket, limit: int = 50):
-    """실시간 알람 WebSocket 엔드포인트"""
-    await manager.connect(websocket)
-    
+    """실시간 알람 WebSocket 엔드포인트 (JWT 인증 필요)"""
     try:
-        recent_alarms = valkey_reader.get_recent_alarms(limit)
+        token = websocket.query_params.get("token")
+        if not token:
+            await websocket.close(code=4001, reason="JWT 토큰이 필요합니다")
+            return
+        
+        user_info = verify_jwt_token(token)
+        if not user_info:
+            await websocket.close(code=4002, reason="JWT 토큰이 유효하지 않습니다")
+            return
+        
+        await manager.connect(websocket, user_info)
+        
+        # 사용자별 초기 데이터 전송 (일시적으로 모든 데이터 전송)
+        recent_alarms = valkey_reader.get_recent_alarms(limit)  # user_id 필터링 제거
         if recent_alarms:
             initial_message = {
                 "type": "initial_data",
                 "alarms": recent_alarms,
-                "timestamp": int(time.time() * 1000)
+                "timestamp": int(time.time() * 1000),
+                "user_id": user_info["user_id"]
             }
             await manager.send_personal_message(
                 json.dumps(initial_message, ensure_ascii=False),
                 websocket
             )
-            logger.info(f"초기 데이터 전송: {len(recent_alarms)}개 알람")
+            logger.info(f"초기 데이터 전송: 사용자 {user_info['username']} - {len(recent_alarms)}개 알람")
         
         while True:
             try:
@@ -184,7 +271,7 @@ async def websocket_endpoint(websocket: WebSocket, limit: int = 50):
                 if data == "ping":
                     await manager.send_personal_message("pong", websocket)
             except WebSocketDisconnect:
-                logger.info("클라이언트 연결 해제")
+                logger.info(f"클라이언트 연결 해제: 사용자 {user_info['username']}")
                 break
             except Exception as e:
                 logger.error(f"WebSocket 수신 오류: {e}")
@@ -198,7 +285,7 @@ async def websocket_endpoint(websocket: WebSocket, limit: int = 50):
         manager.disconnect(websocket)
 
 async def broadcast_events():
-    """Valkey 이벤트를 WebSocket으로 브로드캐스트"""
+    """Valkey 이벤트를 WebSocket으로 브로드캐스트 (사용자별 분리)"""
     while True:
         try:
             events = valkey_reader.get_websocket_events()
@@ -206,28 +293,22 @@ async def broadcast_events():
             if events and manager.active_connections:
                 broadcast_count = 0
                 for event in reversed(events[:5]):
-                    message = json.dumps(event, ensure_ascii=False)
-                    await manager.broadcast(message)
-                    logger.info(f"📡 이벤트 브로드캐스트: {event.get('type', 'unknown')} - {event.get('trace_id', 'unknown')}")
+                    for user_id in list(manager.active_connections.keys()):
+                        message = json.dumps(event, ensure_ascii=False)
+                        await manager.broadcast_to_user(message, user_id)
+                        logger.info(f"사용자별 이벤트 브로드캐스트: 사용자 {user_id} - {event.get('type', 'unknown')} - {event.get('trace_id', 'unknown')}")
+                    
                     broadcast_count += 1
 
                 if broadcast_count > 0:
                     for _ in range(broadcast_count):
                         valkey_reader.valkey_client.rpop('websocket_events')
-                    logger.debug(f"{broadcast_count}개 이벤트 큐에서 제거")
             
-            # 1초 대기
             await asyncio.sleep(1)
             
         except Exception as e:
             logger.error(f"이벤트 브로드캐스트 오류: {e}")
-            await asyncio.sleep(5)  # 오류 시 5초 대기
-
-@app.on_event("startup")
-async def startup_event():
-    """서버 시작 시 이벤트 브로드캐스트 태스크 시작"""
-    asyncio.create_task(broadcast_events())
-    logger.info("WebSocket 서버 시작")
+            await asyncio.sleep(5)
 
 if __name__ == "__main__":
     uvicorn.run(

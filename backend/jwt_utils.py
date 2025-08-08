@@ -1,12 +1,14 @@
 import os
-from pathlib import Path
-from dotenv import load_dotenv
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
+
 import jwt
-from passlib.context import CryptContext
 import redis
+from dotenv import load_dotenv
 from fastapi import HTTPException, status
+from passlib.context import CryptContext
+
 from user_models import TokenPayload
 
 env_path = Path(__file__).parent / ".env"

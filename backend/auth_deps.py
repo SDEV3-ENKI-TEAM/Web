@@ -1,9 +1,10 @@
+from typing import List, Optional
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
-from typing import Optional, List
 
-from database import get_db, User, UserRole
+from database import User, UserRole, get_db
 from jwt_utils import decode_jwt
 from user_models import TokenPayload
 
@@ -17,8 +18,6 @@ def _get_user_roles_from_db(user_id: int, db: Session) -> List[str]:
     """DB에서 사용자 역할 조회"""
     roles = db.query(UserRole).filter(UserRole.user_id == user_id).all()
     return [role.role for role in roles]
-
-
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
@@ -66,8 +65,6 @@ def get_current_user_with_roles(
         "roles": role_names,
         "token_roles": payload.roles
     }
-
-
 
 def require_role(required_role: str):
     """특정 역할이 필요한 의존성 팩토리"""

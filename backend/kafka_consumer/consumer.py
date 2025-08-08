@@ -1,20 +1,19 @@
 import json
 import logging
 import time
-from typing import Dict, Any
 from datetime import datetime, timezone, timedelta
-from kafka import KafkaConsumer
+from typing import Any, Dict
+
 import redis
+from kafka import KafkaConsumer
 from pymongo import MongoClient
 
-# ─── 로깅 설정 ───────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# ─── KST 타임존 객체 ───────────────────────────────────────────
 KST = timezone(timedelta(hours=9))
 
 class TraceConsumer:
@@ -37,11 +36,8 @@ class TraceConsumer:
         self.mongo_db = mongo_db
         self.mongo_collection = mongo_collection
         
-        # Kafka Consumer 초기화
         self.consumer = None
-        # Valkey 클라이언트 초기화
         self.valkey_client = None
-        # MongoDB 클라이언트 초기화
         self.mongo_client = None
         self.mongo_db_client = None
         self.mongo_collection_client = None
@@ -52,11 +48,11 @@ class TraceConsumer:
             self.consumer = KafkaConsumer(
                 self.kafka_topic,
                 bootstrap_servers=[self.kafka_broker],
-                auto_offset_reset='latest',  # 최신 메시지부터 수신
+                auto_offset_reset='latest',
                 enable_auto_commit=True,
                 group_id='trace_consumer_group',
                 value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-                consumer_timeout_ms=1000  # 1초 타임아웃
+                consumer_timeout_ms=1000
             )
             logger.info(f"Kafka Consumer 초기화 완료: {self.kafka_broker} -> {self.kafka_topic}")
             return True
@@ -110,7 +106,16 @@ class TraceConsumer:
                 return False
             
             trace_id = trace_data['trace_id']
-            current_span_count = trace_data.get('span_count', 0)
+            spans = trace_data.get('spans', [])
+            
+            # sigma 매칭된 span 개수 계산
+            matched_span_count = 0
+            for span in spans:
+                tags = span.get('tags', [])
+                for tag in tags:
+                    if tag.get('key') == 'sigma.alert':
+                        matched_span_count += 1
+                        break  # 한 span에서 하나의 sigma.alert만 카운트
  
             existing_data = self.valkey_client.get(f"trace:{trace_id}")
             is_update = False
@@ -118,21 +123,19 @@ class TraceConsumer:
             
             if existing_data:
                 existing = json.loads(existing_data)
-                existing_span_count = existing.get('span_count', 0)
+                existing_matched_span_count = existing.get('matched_span_count', 0)
                 
-                if current_span_count > existing_span_count:
+                if matched_span_count > existing_matched_span_count:
                     is_update = True
-                    logger.info(f"Trace 업데이트: {trace_id} ({existing_span_count} → {current_span_count}개)")
-                elif current_span_count == existing_span_count:
+                    logger.info(f"Trace 업데이트: {trace_id} (sigma 매칭 span: {existing_matched_span_count} → {matched_span_count}개)")
+                elif matched_span_count == existing_matched_span_count:
                     baseline_only = True
-                    logger.debug(f"동일 span_count 관측: {trace_id} ({existing_span_count} == {current_span_count})")
                 else:
                     baseline_only = True
-                    logger.debug(f"감소 관측: {trace_id} ({existing_span_count} → {current_span_count})")
             else:
-                logger.info(f"새로운 Trace: {trace_id} ({current_span_count}개)")
+                logger.info(f"새로운 Trace: {trace_id} (sigma 매칭 span: {matched_span_count}개)")
             
-            alarm_card = self.create_alarm_card(trace_data)
+            alarm_card = self.create_alarm_card(trace_data, matched_span_count)
 
             trace_key = f"trace:{trace_id}"
 
@@ -142,18 +145,21 @@ class TraceConsumer:
 
             alarm_key = "recent_alarms"
             
-            if is_update:
-                # 증가 시에는 기존 카드 제거 후 최신 카드로 교체
-                self.valkey_client.lrem(alarm_key, 0, existing_data)
-                self.valkey_client.lpush(alarm_key, json.dumps(alarm_card, ensure_ascii=False))
-                self.valkey_client.ltrim(alarm_key, 0, 99)
-            elif not existing_data:
-                # 신규만 리스트 추가
-                self.valkey_client.lpush(alarm_key, json.dumps(alarm_card, ensure_ascii=False))
-                self.valkey_client.ltrim(alarm_key, 0, 99)
-            else:
-                # 동일/감소는 리스트/이벤트 비발행 (기준선만 갱신)
-                logger.debug(f"기준선만 갱신: {trace_id} (span_count={current_span_count})")
+            # trace_id 기반으로 기존 항목 제거
+            existing_alarms = self.valkey_client.lrange(alarm_key, 0, -1)
+            for existing_alarm_str in existing_alarms:
+                try:
+                    existing_alarm = json.loads(existing_alarm_str)
+                    if existing_alarm.get('trace_id') == trace_id:
+                        # 같은 trace_id 발견, 제거
+                        self.valkey_client.lrem(alarm_key, 0, existing_alarm_str)
+                        break
+                except json.JSONDecodeError:
+                    continue
+            
+            # 새로운 알람 추가
+            self.valkey_client.lpush(alarm_key, json.dumps(alarm_card, ensure_ascii=False))
+            self.valkey_client.ltrim(alarm_key, 0, 99)  # 최대 100개 유지
 
             # 웹소켓 이벤트는 신규/증가에만 발행
             if not existing_data or is_update:
@@ -176,7 +182,7 @@ class TraceConsumer:
             logger.error(f"Trace 처리 실패: {e}")
             return False
     
-    def create_alarm_card(self, trace_data: Dict[str, Any]) -> Dict[str, Any]:
+    def create_alarm_card(self, trace_data: Dict[str, Any], matched_span_count: int) -> Dict[str, Any]:
         """Trace 데이터를 UI 카드 형태로 변환"""
         try:
             trace_id = trace_data['trace_id']
@@ -187,6 +193,8 @@ class TraceConsumer:
 
             host = "unknown"
             os_type = "windows"
+            user_id = None  # 사용자 ID 추출
+            
             for span in spans:
                 tags = span.get('tags', [])
                 for tag in tags:
@@ -196,7 +204,9 @@ class TraceConsumer:
                         host = tag.get('value', host)
                     elif tag.get('key') == 'Product':
                         os_type = tag.get('value', os_type)
-                if host != "unknown":
+                    elif tag.get('key') == 'user_id':  # 사용자 ID 태그 추출
+                        user_id = tag.get('value')
+                if host != "unknown" and user_id is not None:
                     break
 
             if not host or host == "unknown":
@@ -206,17 +216,22 @@ class TraceConsumer:
 
             sigma_alert_ids = set()
             has_error = False
+            matched_span_count = 0  # 룰 매칭된 span 개수
             
             for span in spans:
                 tags = span.get('tags', [])
+                span_has_alert = False
                 for tag in tags:
                     if tag.get('key') == 'sigma.alert':
                         sigma_alert_ids.add(tag.get('value', ''))
+                        span_has_alert = True
                     elif tag.get('key') == 'error' and tag.get('value') == True:
                         has_error = True
+                
+                if span_has_alert:
+                    matched_span_count += 1
 
             if not sigma_alert_ids:
-                logger.debug(f"sigma.alert가 없는 trace 무시: {trace_id}")
                 return False
 
             severity_scores = []
@@ -313,12 +328,13 @@ class TraceConsumer:
                 "os": os_type or "windows",
                 "checked": False,
                 "sigma_alert": sigma_alert or "",
-                "span_count": len(spans) or 0,
+                "matched_span_count": matched_span_count,  # sigma 매칭 span 개수
                 "ai_summary": ai_summary or "테스트 요약",
                 "severity": severity or "low",
                 "severity_score": avg_severity_score or 30,
                 "sigma_rule_title": sigma_rule_title if sigma_rule_title else (summary or "Unknown Process"),
-                "matched_rules": matched_rules or []
+                "matched_rules": matched_rules or [],
+                "user_id": user_id
             }
             
             return alarm_card
@@ -328,10 +344,8 @@ class TraceConsumer:
             return trace_data 
     
     def _timestamp_to_korea_time(self, timestamp_ms: int) -> str:
-        """timestamp를 한국 시간 문자열로 변환 (Backend API와 동일한 형식)"""
+        """timestamp를 한국 시간 문자열로 변환"""
         try:
-            from datetime import datetime, timezone, timedelta
-            
             utc_dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
             korea_tz = timezone(timedelta(hours=9))
             korea_dt = utc_dt.astimezone(korea_tz)
@@ -367,18 +381,19 @@ class TraceConsumer:
                         for message in messages:
                             try:
                                 trace_data = message.value
-                                logger.info(f"메시지 수신: {trace_data.get('trace_id', 'unknown')}")
+                                trace_id = trace_data.get('trace_id', 'unknown')
+                                logger.info(f"메시지 수신: {trace_id}")
 
                                 if self.process_trace(trace_data):
-                                    logger.info(f"Trace 처리 완료: {trace_data.get('trace_id', 'unknown')}")
+                                    logger.info(f"Trace 처리 완료: {trace_id}")
                                 else:
-                                    logger.warning(f"Trace 처리 실패: {trace_data.get('trace_id', 'unknown')}")
+                                    logger.warning(f"Trace 처리 실패: {trace_id}")
                                     
                             except Exception as e:
                                 logger.error(f"메시지 처리 중 오류: {e}")
                                 
                 except Exception as e:
-                    logger.error("Consumer 실행 중 오류: {e}")
+                    logger.error(f"Consumer 실행 중 오류: {e}")
                     time.sleep(1)
                     
         except KeyboardInterrupt:
