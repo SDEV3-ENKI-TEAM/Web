@@ -250,8 +250,9 @@ async def websocket_endpoint(websocket: WebSocket, limit: int = 50):
         
         await manager.connect(websocket, user_info)
         
-        # 사용자별 초기 데이터 전송 (일시적으로 모든 데이터 전송)
-        recent_alarms = valkey_reader.get_recent_alarms(limit)  # user_id 필터링 제거
+        # 사용자별 초기 데이터 전송
+        user_id = str(user_info["user_id"])
+        recent_alarms = valkey_reader.get_recent_alarms(limit, user_id)
         if recent_alarms:
             initial_message = {
                 "type": "initial_data",

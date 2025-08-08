@@ -158,7 +158,7 @@ class TraceConsumer:
                     continue
             
             # 새로운 알람 추가
-            self.valkey_client.lpush(alarm_key, json.dumps(alarm_card, ensure_ascii=False))
+                self.valkey_client.lpush(alarm_key, json.dumps(alarm_card, ensure_ascii=False))
             self.valkey_client.ltrim(alarm_key, 0, 99)  # 최대 100개 유지
 
             # 웹소켓 이벤트는 신규/증가에만 발행
@@ -208,6 +208,10 @@ class TraceConsumer:
                         user_id = tag.get('value')
                 if host != "unknown" and user_id is not None:
                     break
+
+            # user_id가 없으면 기본값 설정 (임시 해결책)
+            if user_id is None:
+                user_id = "default_user"
 
             if not host or host == "unknown":
                 host = "unknown"

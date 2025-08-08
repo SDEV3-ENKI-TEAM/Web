@@ -26,23 +26,23 @@ def get_current_user(
     """현재 사용자 토큰 페이로드 반환"""
     
     try:
-        payload = decode_jwt(credentials.credentials, is_refresh=False)
-        
-        if payload.type != "access":
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Not an access token"
-            )
-        
+    payload = decode_jwt(credentials.credentials, is_refresh=False)
+    
+    if payload.type != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not an access token"
+        )
+    
         user = _get_user_from_db(payload.user_id, db)
         
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found"
-            )
-        
-        return payload
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+    
+    return payload
     except HTTPException:
         raise
     except Exception as e:

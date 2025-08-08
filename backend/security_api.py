@@ -448,7 +448,7 @@ async def get_timeseries(current_user: dict = Depends(get_current_user_with_role
     try:
         user_id = current_user.get("id")
         username = current_user.get("username")
-
+        
         query = {
             "query": {
                 "bool": {
@@ -537,7 +537,7 @@ async def get_donut_stats(current_user: dict = Depends(get_current_user_with_rol
     try:
         user_id = current_user.get("id")
         username = current_user.get("username")
-    
+        
         query = {
             "query": {
                 "bool": {
@@ -662,7 +662,7 @@ async def get_trace_stats(
                 ]
             }
         }
-
+        
         response = opensearch_analyzer.client.search(
             index="jaeger-span-*",
             body=query

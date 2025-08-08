@@ -136,6 +136,10 @@ class JaegerKafkaBridge:
                 if host != "unknown" and user_id is not None:
                     break
             
+            # user_id가 없으면 기본값 설정 (임시 해결책)
+            if user_id is None:
+                user_id = "default_user"
+            
             detected_at = int(time.time() * 1000)
             
             alarm_data = {
