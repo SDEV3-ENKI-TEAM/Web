@@ -67,7 +67,6 @@ def decode_jwt(token: str, is_refresh: bool = False) -> TokenPayload:
                 detail="Token has been revoked"
             )
         
-        # 알고리즘 고정으로 alg=none 공격 방지
         secret_key = REFRESH_SECRET_KEY if is_refresh else SECRET_KEY
         payload = jwt.decode(
             token, 
@@ -91,51 +90,35 @@ def decode_jwt(token: str, is_refresh: bool = False) -> TokenPayload:
             detail="Invalid token"
         )
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+def _create_token_payload(data: dict, token_type: str, expires_delta: timedelta) -> dict:
+    """토큰 페이로드 생성 헬퍼 함수"""
+    if "user_id" not in data:
+        raise ValueError("user_id must be included in token data")
+    
+    payload = data.copy()
+    payload.update({
+        "exp": datetime.utcnow() + expires_delta,
+        "type": token_type,
+        "iss": ISSUER,
+        "aud": AUDIENCE,
+        "iat": datetime.utcnow(),
+        "nbf": datetime.utcnow()
+    })
+    return payload
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """JWT Access Token 생성"""
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    delta = expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload = _create_token_payload(data, "access", delta)
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
-    if "user_id" not in to_encode:
-        raise ValueError("user_id must be included in access token data")
-    
-    # 표준 클레임 추가
-    to_encode.update({
-        "exp": expire, 
-        "type": "access",
-        "iss": ISSUER,
-        "aud": AUDIENCE,
-        "iat": datetime.utcnow(),
-        "nbf": datetime.utcnow()
-    })
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-def create_refresh_token(data: dict):
+def create_refresh_token(data: dict) -> str:
     """JWT Refresh Token 생성"""
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-
-    if "user_id" not in to_encode:
-        raise ValueError("user_id must be included in refresh token data")
-    
-    # 표준 클레임 추가
-    to_encode.update({
-        "exp": expire, 
-        "type": "refresh",
-        "iss": ISSUER,
-        "aud": AUDIENCE,
-        "iat": datetime.utcnow(),
-        "nbf": datetime.utcnow()
-    })
-    encoded_jwt = jwt.encode(to_encode, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    payload = _create_token_payload(data, "refresh", timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+    return jwt.encode(payload, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
 
 def verify_token(token: str) -> Optional[dict]:
-    """JWT Access Token 검증 - 사용자 정보 전체 반환 (레거시 호환성)"""
+    """JWT Access Token 검증 - 사용자 정보 반환"""
     try:
         payload = decode_jwt(token, is_refresh=False)
         return {
@@ -147,7 +130,7 @@ def verify_token(token: str) -> Optional[dict]:
         return None
 
 def verify_refresh_token(token: str) -> Optional[dict]:
-    """JWT Refresh Token 검증 - 사용자 정보 전체 반환 (레거시 호환성)"""
+    """JWT Refresh Token 검증 - 사용자 정보 반환"""
     try:
         payload = decode_jwt(token, is_refresh=True)
         return {
@@ -159,7 +142,7 @@ def verify_refresh_token(token: str) -> Optional[dict]:
         return None
 
 def get_user_id_from_token(token: str) -> Optional[int]:
-    """토큰에서 사용자 ID 추출 (레거시 호환성)"""
+    """토큰에서 사용자 ID 추출"""
     try:
         payload = decode_jwt(token, is_refresh=False)
         return payload.user_id
@@ -167,7 +150,7 @@ def get_user_id_from_token(token: str) -> Optional[int]:
         return None
 
 def get_username_from_token(token: str) -> Optional[str]:
-    """토큰에서 사용자명 추출 (레거시 호환성)"""
+    """토큰에서 사용자명 추출"""
     try:
         payload = decode_jwt(token, is_refresh=False)
         return payload.sub

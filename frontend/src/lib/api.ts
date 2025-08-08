@@ -91,14 +91,6 @@ export async function fetchSigmaRule(sigmaId: string): Promise<any> {
   return await response.json();
 }
 
-export async function fetchNodeDetail(
-  traceId: string,
-  nodeId: string
-): Promise<any> {
-  const response = await fetchWithAuth(`/api/traces/node/${traceId}/${nodeId}`);
-  return await response.json();
-}
-
 export async function testOpenSearchConnection(): Promise<any> {
   const response = await fetchWithAuth("/api/opensearch/test");
   return await response.json();

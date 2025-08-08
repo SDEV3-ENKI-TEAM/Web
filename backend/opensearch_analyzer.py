@@ -1,7 +1,7 @@
+import os
 from opensearchpy import OpenSearch
 from typing import Dict, List
 from dotenv import load_dotenv
-import os
 from pathlib import Path
 
 try:
@@ -17,16 +17,12 @@ except Exception as e:
 
 class OpenSearchAnalyzer:
     def __init__(self, hosts=None):
-        """OpenSearch 클라이언트를 초기화합니다 (AWS OpenSearch용)."""
+        """OpenSearch 클라이언트를 초기화합니다."""
         if not hosts:
             opensearch_host = os.getenv('OPENSEARCH_HOST', 'localhost')
             opensearch_port = int(os.getenv('OPENSEARCH_PORT', 9200))
             opensearch_use_ssl = os.getenv('OPENSEARCH_USE_SSL', 'false').lower() == 'true'
             opensearch_verify_certs = os.getenv('OPENSEARCH_VERIFY_CERTS', 'false').lower() == 'true'
-
-            aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')
-            aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
-            aws_region = os.getenv('AWS_REGION', 'ap-northeast-2')
 
             opensearch_username = os.getenv('OPENSEARCH_USERNAME')
             opensearch_password = os.getenv('OPENSEARCH_PASSWORD')
@@ -53,41 +49,6 @@ class OpenSearchAnalyzer:
             retry_on_timeout=True
         )
         
-    def check_jaeger_indices(self) -> Dict:
-        """Jaeger 관련 인덱스 상태를 확인합니다."""
-        try:
-            
-            indices = self.client.cat.indices(index="jaeger-*", format="json")
-            
-            if not indices:
-                return {
-                    "status": "warning", 
-                    "message": "Jaeger 인덱스가 존재하지 않습니다. EventAgent가 실행 중인지 확인하세요."
-                }
-            
-            total_docs = 0
-            index_info = []
-            
-            for index in indices:
-                index_name = index['index']
-                doc_count = int(index['docs.count']) if index['docs.count'] != 'null' else 0
-                total_docs += doc_count
-                
-                index_info.append({
-                    "name": index_name,
-                    "doc_count": doc_count,
-                    "store_size": index['store.size'],
-                    "status": index['status']
-                })
-            
-            return {
-                "status": "success",
-                "total_documents": total_docs,
-                "indices": index_info
-            }
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-    
     def extract_process_from_operation_name(self, operation_name: str) -> str:
         """operationName에서 프로세스 정보를 추출합니다."""
         if not operation_name:
@@ -144,12 +105,9 @@ class OpenSearchAnalyzer:
             raw_name = filename
         
         raw_name = re.sub(r'[()[\]{}]', '', raw_name)
-        
         raw_name = raw_name.strip()
-
-        cleaned_name = raw_name if raw_name else 'unknown'
         
-        return cleaned_name
+        return raw_name if raw_name else 'unknown'
 
     def convert_korean_timestamp(self, korean_time: str) -> str:
         """한국어 시간 형식을 JavaScript가 읽을 수 있는 형식으로 변환합니다."""
@@ -184,13 +142,11 @@ class OpenSearchAnalyzer:
             print(f"한국어 시간 변환 오류: {e}")
             return korean_time
 
-    
     def transform_jaeger_span_to_event(self, span: Dict) -> Dict:
         """Jaeger 스팬을 Events 페이지 형식으로 변환합니다."""
         source = span.get('_source', {})
         
         tags = {}
-
         if 'tags' in source:
             for tag in source['tags']:
                 if isinstance(tag, dict) and 'key' in tag and 'value' in tag:
@@ -198,7 +154,6 @@ class OpenSearchAnalyzer:
 
         if 'tag' in source and isinstance(source['tag'], dict):
             tags.update(source['tag'])
-        
 
         raw_process_name = (
             tags.get('Image') or 
@@ -212,7 +167,6 @@ class OpenSearchAnalyzer:
         )
 
         process_name = self.clean_process_name(raw_process_name)
-        
         
         sysmon_event_id = (
             tags.get('sysmon@event_id') or  
@@ -253,7 +207,7 @@ class OpenSearchAnalyzer:
         else:
             final_timestamp = tags.get('UtcTime') or tags.get('timestamp') or str(source.get('startTime', 0))
 
-        result = {
+        return {
             "event_id": span.get('_id', ''),
             "trace_id": source.get('traceID', ''),
             "span_id": source.get('spanID', ''),
@@ -276,12 +230,9 @@ class OpenSearchAnalyzer:
             "duration": source.get('duration', 0),
             "all_tags": tags
         }
-        
-        return result
     
     def get_process_tree_events(self, trace_id: str) -> List[Dict]:
         """특정 트레이스의 프로세스 트리 이벤트를 가져옵니다."""
-        
         query = {
             "query": {
                 "term": {
@@ -305,44 +256,83 @@ class OpenSearchAnalyzer:
             source = span['_source']
             events.append(source)
         return events
-    
-    def test_connection(self) -> Dict:
-        """AWS OpenSearch 연결을 테스트합니다."""
-        try:
-            # 클러스터 정보 가져오기
-            info = self.client.info()
-            
-            # 인덱스 목록 가져오기
-            indices = self.client.cat.indices(format="json")
-            
-            return {
-                "status": "success",
-                "message": "AWS OpenSearch 연결 성공",
-                "cluster_info": {
-                    "cluster_name": info.get('cluster_name', 'unknown'),
-                    "version": info.get('version', {}).get('number', 'unknown')
-                },
-                "indices_count": len(indices),
-                "indices": [index['index'] for index in indices[:10]]  # 처음 10개만
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "message": f"AWS OpenSearch 연결 실패: {str(e)}",
-                "error_details": str(e)
-            }
-    
-    def get_connection_info(self) -> Dict:
-        """현재 연결 설정 정보를 반환합니다."""
-        import os
-        return {
-            "host": os.getenv('OPENSEARCH_HOST', 'localhost'),
-            "port": os.getenv('OPENSEARCH_PORT', '9200'),
-            "use_ssl": os.getenv('OPENSEARCH_USE_SSL', 'false'),
-            "verify_certs": os.getenv('OPENSEARCH_VERIFY_CERTS', 'false'),
-            "region": os.getenv('AWS_REGION', 'ap-northeast-2'),
-            "has_aws_credentials": bool(os.getenv('AWS_ACCESS_KEY_ID') and os.getenv('AWS_SECRET_ACCESS_KEY')),
-            "has_basic_auth": bool(os.getenv('OPENSEARCH_USERNAME') and os.getenv('OPENSEARCH_PASSWORD'))
+
+    def get_sysmon_event_type(self, event_id: str) -> str:
+        """Sysmon 이벤트 ID를 이벤트 타입으로 변환합니다."""
+        if not event_id:
+            return "unknown"
+        
+        event_types = {
+            "1": "process_creation",
+            "2": "file_time_change",
+            "3": "network_connection",
+            "4": "sysmon_service_state_change",
+            "5": "process_termination",
+            "6": "driver_load",
+            "7": "image_load",
+            "8": "create_remote_thread",
+            "9": "raw_access_read",
+            "10": "process_access",
+            "11": "file_create",
+            "12": "registry_create_delete",
+            "13": "registry_value_set",
+            "14": "registry_object_rename",
+            "15": "file_create_stream_hash",
+            "16": "service_config_change",
+            "17": "pipe_created",
+            "18": "pipe_connected",
+            "19": "wmi_event",
+            "20": "wmi_consumer",
+            "21": "wmi_consumer_filter",
+            "22": "dns_query",
+            "23": "file_delete",
+            "24": "clipboard_change",
+            "25": "process_tampering",
+            "26": "file_delete_detected",
+            "27": "file_block_executable",
+            "28": "file_block_shredding"
         }
+        
+        return event_types.get(event_id, "unknown")
+
+    def get_sysmon_event_type_korean(self, event_id: str) -> str:
+        """Sysmon 이벤트 ID를 한국어 이벤트 타입으로 변환합니다."""
+        if not event_id:
+            return "알 수 없음"
+        
+        korean_event_types = {
+            "1": "프로세스 생성",
+            "2": "파일 시간 변경",
+            "3": "네트워크 연결",
+            "4": "Sysmon 서비스 상태 변경",
+            "5": "프로세스 종료",
+            "6": "드라이버 로드",
+            "7": "이미지 로드",
+            "8": "원격 스레드 생성",
+            "9": "원시 액세스 읽기",
+            "10": "프로세스 액세스",
+            "11": "파일 생성",
+            "12": "레지스트리 생성/삭제",
+            "13": "레지스트리 값 설정",
+            "14": "레지스트리 객체 이름 변경",
+            "15": "파일 생성 스트림 해시",
+            "16": "서비스 구성 변경",
+            "17": "파이프 생성",
+            "18": "파이프 연결",
+            "19": "WMI 이벤트",
+            "20": "WMI 소비자",
+            "21": "WMI 소비자 필터",
+            "22": "DNS 쿼리",
+            "23": "파일 삭제",
+            "24": "클립보드 변경",
+            "25": "프로세스 조작",
+            "26": "파일 삭제 감지",
+            "27": "실행 파일 차단",
+            "28": "파일 파쇄 차단"
+        }
+        
+        return korean_event_types.get(event_id, "알 수 없음")
+    
+
     
  

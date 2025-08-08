@@ -7,54 +7,47 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 데이터베이스 설정 (MySQL 사용)
-MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
-MYSQL_PORT = os.getenv("MYSQL_PORT", "3306")
-MYSQL_USER = os.getenv("MYSQL_USER", "root")
-MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
-MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "aidetector_db")
+MYSQL_HOST = os.getenv("MYSQL_HOST")
+MYSQL_PORT = os.getenv("MYSQL_PORT")
+MYSQL_USER = os.getenv("MYSQL_USER")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD")
+MYSQL_DATABASE = os.getenv("MYSQL_DATABASE")
 
-# 데이터베이스 URL
 DATABASE_URL = f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}"
 
-# SQLAlchemy 엔진 생성
 engine = create_engine(DATABASE_URL, echo=False)
-
-# 세션 팩토리 생성
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Base 클래스 생성
 Base = declarative_base()
 
-# 데이터베이스 세션 의존성
 def get_db():
+    """데이터베이스 세션 의존성"""
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
 
-# User 모델
 class User(Base):
+    """사용자 모델"""
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
     password = Column(String(255), nullable=False)
-    refresh_token = Column(String(500), nullable=True)  # refresh_token 컬럼 추가
+    refresh_token = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-# User Role 모델
 class UserRole(Base):
+    """사용자 역할 모델"""
     __tablename__ = "user_roles"
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, nullable=False)
     role = Column(String(50), nullable=False)
 
-# Agent 모델
 class Agent(Base):
+    """Agent 모델"""
     __tablename__ = "agents"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -65,8 +58,8 @@ class Agent(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-# Refresh Token 모델
 class RefreshToken(Base):
+    """Refresh Token 모델"""
     __tablename__ = "refresh_tokens"
     
     id = Column(Integer, primary_key=True, index=True)
