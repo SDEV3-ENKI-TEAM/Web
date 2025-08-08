@@ -12,9 +12,10 @@ import ReactFlow, {
   Position,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import CustomNode from "@/components/CustomNode";
 import axiosInstance from "@/lib/axios";
+import { useAuth } from "@/context/AuthContext";
 
 interface Trace {
   trace_id: string;
@@ -152,6 +153,8 @@ function AlarmDetailContent() {
   const [activeTab, setActiveTab] = useState<"report" | "response">("report");
   const [showRaw, setShowRaw] = useState(false);
   const [sigmaTitles, setSigmaTitles] = useState<{ [key: string]: string }>({});
+  const router = useRouter();
+  const { logout } = useAuth();
 
   const fetchSigmaTitle = async (sigmaId: string) => {
     try {
@@ -206,7 +209,10 @@ function AlarmDetailContent() {
     setSelectedNode(node);
   }, []);
 
-  const handleLogout = useCallback(() => {}, []);
+  const handleLogout = useCallback(() => {
+    logout();
+    router.push("/login");
+  }, [logout, router]);
 
   const onLoad = useCallback((inst: any) => {
     reactFlowInstance.current = inst;

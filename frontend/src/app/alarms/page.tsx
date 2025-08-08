@@ -5,6 +5,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { useWebSocket } from "@/contexts/WebSocketContext";
+import { useAuth } from "@/context/AuthContext";
 
 interface Alarm {
   trace_id: string;
@@ -45,6 +46,7 @@ export default function AlarmsPage() {
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(alarms.length);
   const router = useRouter();
+  const { logout } = useAuth();
 
   const [severityFilters, setSeverityFilters] = useState<string[]>([]);
   const [dateRange, setDateRange] = useState({
@@ -153,8 +155,13 @@ export default function AlarmsPage() {
     );
   };
 
+  const handleLogout = () => {
+    logout();
+    router.push("/login");
+  };
+
   return (
-    <DashboardLayout onLogout={() => {}}>
+    <DashboardLayout onLogout={handleLogout}>
       <div className="max-w-7xl mx-auto w-full">
         <motion.div
           initial={{ opacity: 0, y: -20 }}

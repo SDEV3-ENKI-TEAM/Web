@@ -178,6 +178,11 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, any>>({});
   const [hasChanges, setHasChanges] = useState(false);
 
+  const handleLogout = () => {
+    logout();
+    router.push("/login");
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
@@ -224,7 +229,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Header */}
-      <Header onLogout={logout} />
+      <Header onLogout={handleLogout} />
 
       <div className="flex">
         {/* Sidebar */}
