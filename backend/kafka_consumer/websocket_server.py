@@ -154,7 +154,7 @@ class ValkeyEventReader:
             logger.error(f"Valkey 이벤트 조회 실패: {e}")
             return []
     
-    def get_recent_alarms(self, limit: int = 10, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_recent_alarms(self, limit: int = 10, username: Optional[str] = None) -> List[Dict[str, Any]]:
         """최근 알람 데이터 조회 (사용자별 필터링)"""
         try:
             alarms = self.valkey_client.lrange('recent_alarms', 0, limit - 1)
@@ -163,9 +163,12 @@ class ValkeyEventReader:
             for alarm_str in alarms:
                 try:
                     alarm = json.loads(alarm_str)
-                    # 사용자별 필터링
-                    if user_id and alarm.get('user_id') != user_id:
+                    alarm_user_id = alarm.get('user_id')
+                    
+                    # 사용자별 필터링 (username과 user_id 비교)
+                    if username and str(alarm_user_id) != str(username):
                         continue
+                    
                     recent_alarms.append(alarm)
                 except json.JSONDecodeError as e:
                     logger.error(f"알람 JSON 파싱 실패: {e}")
@@ -226,9 +229,9 @@ async def health_check():
         }
 
 @app.get("/api/alarms/recent")
-async def get_recent_alarms(limit: int = 10, user_id: Optional[str] = None):
+async def get_recent_alarms(limit: int = 10, username: Optional[str] = None):
     """최근 알람 데이터 조회 (REST API) - 사용자별 필터링"""
-    alarms = valkey_reader.get_recent_alarms(limit, user_id)
+    alarms = valkey_reader.get_recent_alarms(limit, username)
     return {
         "alarms": alarms,
         "count": len(alarms)
@@ -250,9 +253,9 @@ async def websocket_endpoint(websocket: WebSocket, limit: int = 50):
         
         await manager.connect(websocket, user_info)
         
-        # 사용자별 초기 데이터 전송
-        user_id = str(user_info["user_id"])
-        recent_alarms = valkey_reader.get_recent_alarms(limit, user_id)
+        # 사용자별 초기 데이터 전송 (username 사용)
+        username = user_info["username"]
+        recent_alarms = valkey_reader.get_recent_alarms(limit, username)
         if recent_alarms:
             initial_message = {
                 "type": "initial_data",

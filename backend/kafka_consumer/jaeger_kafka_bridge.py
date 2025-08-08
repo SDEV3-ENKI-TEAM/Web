@@ -238,7 +238,7 @@ class JaegerKafkaBridge:
                         spans = trace.get('spans', [])
                         if not self.should_send_trace(trace_id, spans):
                             continue
-                        
+
                         alarm_data = self.trace_to_kafka_message(trace)
                         
                         if alarm_data:

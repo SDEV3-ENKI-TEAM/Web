@@ -49,7 +49,7 @@ class OpenSearchAnalyzer:
             max_retries=3,
             retry_on_timeout=True
         )
-        
+    
     def extract_process_from_operation_name(self, operation_name: str) -> str:
         """operationName에서 프로세스 정보를 추출합니다."""
         if not operation_name:
@@ -142,7 +142,7 @@ class OpenSearchAnalyzer:
         except Exception as e:
             print(f"한국어 시간 변환 오류: {e}")
             return korean_time
-
+    
     def transform_jaeger_span_to_event(self, span: Dict) -> Dict:
         """Jaeger 스팬을 Events 페이지 형식으로 변환합니다."""
         source = span.get('_source', {})
@@ -257,7 +257,7 @@ class OpenSearchAnalyzer:
             source = span['_source']
             events.append(source)
         return events
-
+    
     def get_sysmon_event_type(self, event_id: str) -> str:
         """Sysmon 이벤트 ID를 이벤트 타입으로 변환합니다."""
         if not event_id:
@@ -292,8 +292,8 @@ class OpenSearchAnalyzer:
             "26": "file_delete_detected",
             "27": "file_block_executable",
             "28": "file_block_shredding"
-        }
-        
+            }
+    
         return event_types.get(event_id, "unknown")
 
     def get_sysmon_event_type_korean(self, event_id: str) -> str:

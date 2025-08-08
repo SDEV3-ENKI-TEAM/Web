@@ -80,7 +80,7 @@ def _get_user_roles(db: Session, user_id: int) -> List[str]:
     """사용자 역할 조회"""
     roles = db.query(UserRole).filter(UserRole.user_id == user_id).all()
     return [role.role for role in roles]
-
+    
 def _create_token_data(user: User, roles: List[str]) -> dict:
     """토큰 데이터 생성"""
     return {
