@@ -126,7 +126,7 @@ class WebSocketManager:
 class ValkeyEventReader:
     """Valkey에서 WebSocket 이벤트를 읽는 클래스 (사용자별 분리)"""
     
-    def __init__(self, host: str = "localhost", port: int = 6379, db: int = 0):
+    def __init__(self, host: str = None, port: int = None, db: int = None):
         self.valkey_client = redis.Redis(
             host=host,
             port=port,
@@ -155,28 +155,34 @@ class ValkeyEventReader:
             return []
     
     def get_recent_alarms(self, limit: int = 10, username: Optional[str] = None) -> List[Dict[str, Any]]:
-        """최근 알람 데이터 조회 (사용자별 필터링)"""
+        """최근 알람 데이터 조회 (trace:* 키 사용)"""
         try:
-            alarms = self.valkey_client.lrange('recent_alarms', 0, limit - 1)
+            # trace:* 패턴으로 모든 키 조회
+            trace_keys = self.valkey_client.keys('trace:*')
             recent_alarms = []
             
-            for alarm_str in alarms:
+            # 최신 순으로 정렬 (키 이름에 시간 정보가 있다면)
+            trace_keys.sort(reverse=True)
+            
+            for trace_key in trace_keys[:limit]:
                 try:
-                    alarm = json.loads(alarm_str)
-                    alarm_user_id = alarm.get('user_id')
-                    
-                    # 사용자별 필터링 (username과 user_id 비교)
-                    if username and str(alarm_user_id) != str(username):
-                        continue
-                    
-                    recent_alarms.append(alarm)
+                    trace_data = self.valkey_client.get(trace_key)
+                    if trace_data:
+                        alarm = json.loads(trace_data)
+                        alarm_user_id = alarm.get('user_id')
+                        
+                        # 사용자별 필터링 (username과 user_id 비교)
+                        if username and str(alarm_user_id) != str(username):
+                            continue
+                        
+                        recent_alarms.append(alarm)
                 except json.JSONDecodeError as e:
-                    logger.error(f"알람 JSON 파싱 실패: {e}")
+                    logger.error(f"Trace JSON 파싱 실패: {e}")
                     continue
             
             return recent_alarms
         except Exception as e:
-            logger.error(f"Valkey 알람 조회 실패: {e}")
+            logger.error(f"Valkey trace 조회 실패: {e}")
             return []
 
 @asynccontextmanager
@@ -200,7 +206,11 @@ app.add_middleware(
 )
 
 manager = WebSocketManager()
-valkey_reader = ValkeyEventReader()
+valkey_reader = ValkeyEventReader(
+    host=os.getenv("VALKEY_HOST"),
+    port=int(os.getenv("VALKEY_PORT")),
+    db=int(os.getenv("VALKEY_DB", "0"))
+)
 
 @app.get("/")
 async def root():

@@ -20,8 +20,8 @@ class OpenSearchAnalyzer:
     def __init__(self, hosts=None):
         """OpenSearch 클라이언트를 초기화합니다."""
         if not hosts:
-            opensearch_host = os.getenv('OPENSEARCH_HOST', 'localhost')
-            opensearch_port = int(os.getenv('OPENSEARCH_PORT', 9200))
+            opensearch_host = os.getenv('OPENSEARCH_HOST')
+            opensearch_port = int(os.getenv('OPENSEARCH_PORT'))
             opensearch_use_ssl = os.getenv('OPENSEARCH_USE_SSL', 'false').lower() == 'true'
             opensearch_verify_certs = os.getenv('OPENSEARCH_VERIFY_CERTS', 'false').lower() == 'true'
 

@@ -21,7 +21,7 @@ awsauth = AWS4Auth(
 
 ALLOWED_FMTS = ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"]
 OPENSEARCH_HOST = os.getenv("OPENSEARCH_HOST")
-TRACE_INDEX = os.getenv("TRACE_INDEX_PATTERN", "jaeger-span-*")
+TRACE_INDEX = os.getenv("TRACE_INDEX_PATTERN")
 
 opensearch_client = OpenSearch(
     hosts=[

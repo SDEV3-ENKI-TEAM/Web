@@ -42,28 +42,51 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 def store_refresh_token(db: Session, user_id: int, refresh_token: str, request: Request):
-    """Refresh Token을 users 테이블에 저장"""
+    """Refresh Token을 refresh_tokens 테이블에 저장"""
     hashed_token = hash_token(refresh_token)
-    user = db.query(User).filter(User.id == user_id).first()
-    if user:
-        user.refresh_token = hashed_token
-        db.commit()
+    
+    # 기존 유효한 refresh 토큰들을 무효화
+    db.query(RefreshToken).filter(
+        RefreshToken.user_id == user_id,
+        RefreshToken.is_revoked == False
+    ).update({"is_revoked": True})
+    
+    # 새로운 refresh 토큰 저장
+    new_refresh_token = RefreshToken(
+        user_id=user_id,
+        token_hash=hashed_token,
+        expires_at=datetime.utcnow() + timedelta(hours=12),  # 12시간
+        is_revoked=False,
+        created_at=datetime.utcnow(),
+        last_used_at=datetime.utcnow(),
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent")
+    )
+    
+    db.add(new_refresh_token)
+    db.commit()
 
 def verify_stored_refresh_token(db: Session, refresh_token: str, user_id: int) -> bool:
     """저장된 Refresh Token 검증"""
     hashed_token = hash_token(refresh_token)
-    user = db.query(User).filter(
-        User.id == user_id,
-        User.refresh_token == hashed_token
+    stored_token = db.query(RefreshToken).filter(
+        RefreshToken.user_id == user_id,
+        RefreshToken.token_hash == hashed_token,
+        RefreshToken.is_revoked == False,
+        RefreshToken.expires_at > datetime.utcnow()
     ).first()
-    return user is not None
+    return stored_token is not None
 
 def revoke_refresh_token(db: Session, refresh_token: str, user_id: int):
     """Refresh Token 무효화"""
     hashed_token = hash_token(refresh_token)
-    user = db.query(User).filter(User.id == user_id).first()
-    if user:
-        user.refresh_token = None
+    stored_token = db.query(RefreshToken).filter(
+        RefreshToken.user_id == user_id,
+        RefreshToken.token_hash == hashed_token,
+        RefreshToken.is_revoked == False
+    ).first()
+    if stored_token:
+        stored_token.is_revoked = True
         db.commit()
 
 def _get_user_by_username(db: Session, username: str) -> User:
@@ -112,7 +135,7 @@ def _create_jwt_response(user: User, roles: List[str], db: Session, request: Req
         httponly=True,
         secure=True,
         samesite="strict",
-        max_age=30 * 24 * 60 * 60
+        max_age=12 * 60 * 60  # 12시간
     )
     
     return json_response
@@ -191,7 +214,11 @@ async def logout(
         user_info = _verify_user_token(credentials)
         user = _get_user_from_token(db, user_info)
         
-        user.refresh_token = None
+        # 해당 사용자의 모든 유효한 refresh 토큰 무효화
+        db.query(RefreshToken).filter(
+            RefreshToken.user_id == user.id,
+            RefreshToken.is_revoked == False
+        ).update({"is_revoked": True})
         db.commit()
         
         return {"message": "로그아웃 성공"}
@@ -234,8 +261,18 @@ async def refresh_token(request: Request, refresh_request: RefreshTokenRequest, 
             detail="유효하지 않은 Refresh Token"
         )
     
+    # 저장된 refresh 토큰 검증
+    if not verify_stored_refresh_token(db, refresh_token, user_info["user_id"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="저장되지 않은 Refresh Token"
+        )
+    
     user = _get_user_from_token(db, user_info)
     roles = _get_user_roles(db, user.id)
+    
+    # 기존 refresh 토큰 무효화
+    revoke_refresh_token(db, refresh_token, user_info["user_id"])
     
     token_data = _create_token_data(user, roles)
     new_access_token = create_access_token(data=token_data)

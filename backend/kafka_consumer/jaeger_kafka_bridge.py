@@ -19,7 +19,7 @@ class JaegerKafkaBridge:
                  jaeger_url: str = "http://3.36.80.36:16686",
                  kafka_broker: str = "localhost:9092",
                  kafka_topic: str = "traces",
-                 poll_interval: int = 2,
+                 poll_interval: int = 5,
                  valkey_host: str = "localhost",
                  valkey_port: int = 6379,
                  valkey_db: int = 0):
@@ -75,10 +75,10 @@ class JaegerKafkaBridge:
                 'service': 'sysmon-agent',
                 'start': int((time.time() - 2 * 24 * 3600) * 1000000),  # 2일 전
                 'end': int((time.time() + 60) * 1000000),
-                'limit': 100,
+                'limit': 1500,
             }
             
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.get(url, params=params, timeout=30)
             response.raise_for_status()
             
             data = response.json()
@@ -91,6 +91,53 @@ class JaegerKafkaBridge:
             logger.error(f"Jaeger 조회 실패: {e}")
             return []
     
+    def process_traces_in_batches(self, traces: List[Dict[str, Any]], batch_size: int = 50) -> int:
+        """Trace들을 배치로 나누어 처리"""
+        try:
+            total_processed = 0
+            total_batches = (len(traces) + batch_size - 1) // batch_size
+            
+            logger.info(f"총 {len(traces)}개 Trace를 {batch_size}개씩 {total_batches}개 배치로 처리")
+            
+            for i in range(0, len(traces), batch_size):
+                batch = traces[i:i + batch_size]
+                batch_num = (i // batch_size) + 1
+                
+                logger.info(f"배치 {batch_num}/{total_batches} 처리 중 ({len(batch)}개 Trace)")
+                
+                batch_processed = 0
+                for trace in batch:
+                    trace_id = trace.get('traceID', '')
+                    
+                    # 중복 체크
+                    spans = trace.get('spans', [])
+                    if not self.should_send_trace(trace_id, spans):
+                        continue
+
+                    alarm_data = self.trace_to_kafka_message(trace)
+                    
+                    if alarm_data:
+                        if self.send_to_kafka(alarm_data):
+                            batch_processed += 1
+                            logger.info(f"새로운 Trace 전송: {trace_id}")
+                        else:
+                            logger.error(f"Trace 전송 실패: {trace_id}")
+                    else:
+                        logger.info(f"Trace 변환 실패 (sigma.alert 또는 ERROR 없음): {trace_id}")
+                
+                total_processed += batch_processed
+                logger.info(f"배치 {batch_num} 완료: {batch_processed}개 처리됨")
+                
+                # 배치 간 짧은 대기 (시스템 부하 분산)
+                if i + batch_size < len(traces):
+                    time.sleep(0.1)
+            
+            return total_processed
+            
+        except Exception as e:
+            logger.error(f"배치 처리 중 오류: {e}")
+            return 0
+    
     def trace_to_kafka_message(self, trace: Dict[str, Any]) -> Dict[str, Any]:
         """Trace 데이터를 Kafka 메시지로 변환"""
         try:
@@ -102,6 +149,8 @@ class JaegerKafkaBridge:
             
             has_sigma_alert = False
             sigma_alert_value = ""
+            has_error = False
+            
             for span in spans:
                 tags = span.get('tags', [])
                 for tag in tags:
@@ -109,10 +158,13 @@ class JaegerKafkaBridge:
                         has_sigma_alert = True
                         sigma_alert_value = tag.get('value', '')
                         break
-                if has_sigma_alert:
+                    elif tag.get('key') == 'otel.status_code' and tag.get('value') == 'ERROR':
+                        has_error = True
+                if has_sigma_alert or has_error:
                     break
             
-            if not has_sigma_alert:
+            # sigma.alert 또는 ERROR 상태인 trace만 처리
+            if not has_sigma_alert and not has_error:
                 return None
             
             first_span = spans[0]
@@ -142,6 +194,20 @@ class JaegerKafkaBridge:
             
             detected_at = int(time.time() * 1000)
             
+            # sigma.alert가 있으면 보안 알람, 없으면 ERROR 알람
+            if has_sigma_alert:
+                alert_type = "sigma_alert"
+                alert_value = sigma_alert_value
+                severity = "high"
+                severity_score = 90
+                rule_title = sigma_alert_value
+            else:
+                alert_type = "error_alert"
+                alert_value = "ERROR"
+                severity = "medium"
+                severity_score = 60
+                rule_title = "System Error Detected"
+            
             alarm_data = {
                 "trace_id": trace_id,
                 "detected_at": detected_at,
@@ -150,10 +216,11 @@ class JaegerKafkaBridge:
                 "host": host,
                 "os": os_type,
                 "checked": False,
-                "sigma_alert": sigma_alert_value,
-                "severity": "high",
-                "severity_score": 90,
-                "sigma_rule_title": sigma_alert_value,
+                "sigma_alert": alert_value,
+                "severity": severity,
+                "severity_score": severity_score,
+                "sigma_rule_title": rule_title,
+                "alert_type": alert_type,
                 "spans": spans,
                 "is_update": False,
                 "previous_span_count": 0,
@@ -229,31 +296,15 @@ class JaegerKafkaBridge:
                 try:
                     traces = self.get_jaeger_traces()
                     
-                    new_traces_count = 0
-                    
-                    for trace in traces:
-                        trace_id = trace.get('traceID', '')
+                    if traces:
+                        new_traces_count = self.process_traces_in_batches(traces, batch_size=50)
                         
-                        # 중복 체크
-                        spans = trace.get('spans', [])
-                        if not self.should_send_trace(trace_id, spans):
-                            continue
-
-                        alarm_data = self.trace_to_kafka_message(trace)
-                        
-                        if alarm_data:
-                            if self.send_to_kafka(alarm_data):
-                                new_traces_count += 1
-                                logger.info(f"새로운 Trace 전송: {trace_id}")
-                            else:
-                                logger.error(f"Trace 전송 실패: {trace_id}")
+                        if new_traces_count > 0:
+                            logger.info(f"새로운 Trace {new_traces_count}개 전송 완료")
                         else:
-                            logger.info(f"Trace 변환 실패 (sigma.alert 없음): {trace_id}")
-                    
-                    if new_traces_count > 0:
-                        logger.info(f"새로운 Trace {new_traces_count}개 전송")
+                            logger.info("새로운 Trace 없음")
                     else:
-                        logger.info("새로운 Trace 없음")
+                        logger.info("조회된 Trace 없음")
 
                     time.sleep(self.poll_interval)
                     

@@ -37,6 +37,72 @@ AI-Detector는 Sysmon ETW(Event Tracing for Windows) 데이터를 실시간으�
 
 ---
 
+## 환경변수 설정
+
+프로젝트 실행을 위해 다음 환경변수들을 설정해야 합니다. `backend/.env` 파일을 생성하고 아래 설정을 추가하세요.
+
+### 필수 환경변수
+
+```bash
+# JWT 설정
+JWT_SECRET_KEY=your-super-secret-jwt-key-here-change-this-in-production
+JWT_REFRESH_SECRET_KEY=your-super-secret-jwt-refresh-key-here-change-this-in-production
+JWT_ISSUER=shitftx
+JWT_AUDIENCE=shitftx-users
+
+# MySQL 설정
+MYSQL_HOST=
+MYSQL_PORT=
+MYSQL_USER=
+MYSQL_PASSWORD=
+MYSQL_DATABASE=
+
+# MongoDB 설정
+MONGO_URI=
+MONGO_DB=
+MONGO_COLLECTION=
+
+# Redis 설정
+REDIS_HOST=
+REDIS_PORT=
+REDIS_DB=
+
+# OpenSearch 설정
+OPENSEARCH_HOST=
+OPENSEARCH_PORT=
+OPENSEARCH_USE_SSL=
+OPENSEARCH_VERIFY_CERTS=
+OPENSEARCH_USERNAME=
+OPENSEARCH_PASSWORD=
+TRACE_INDEX_PATTERN=
+
+# AWS 설정 (OpenSearch용)
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_REGION=
+
+# Valkey 설정 (Rate Limiting)
+VALKEY_HOST=
+VALKEY_PORT=
+VALKEY_DB=
+
+# OpenAI 설정
+OPENAI_API_KEY=
+
+# Sigma Rules 설정
+RULES_DIR=
+TRACE_INDEX_PATTERN=
+```
+
+### 보안 주의사항
+
+- **프로덕션 환경에서는 반드시 강력한 JWT 키를 사용하세요**
+- **데이터베이스 비밀번호는 복잡하게 설정하세요**
+- **`.env` 파일은 절대 Git에 커밋하지 마세요**
+- **프로덕션에서는 SSL/TLS를 활성화하세요**
+
+---
+
 ## 프로젝트 구조
 
 ```
@@ -79,6 +145,10 @@ AI-Detector/
 
 ```bash
 cd backend
+
+# 환경변수 파일 생성
+cp env_example.txt .env
+# .env 파일을 편집하여 실제 값으로 설정
 
 pip install -r requirements.txt
 

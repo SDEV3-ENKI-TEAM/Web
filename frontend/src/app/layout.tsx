@@ -5,6 +5,7 @@ import { AuthProvider } from "@/context/AuthContext";
 import { DashboardProvider } from "@/context/DashboardContext";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import GlobalNotification from "@/components/GlobalNotification";
+import ToastNotification from "@/components/ToastNotification";
 
 export const metadata: Metadata = {
   title: "AI Detector - 악성프로세스 탐지 시스템",
@@ -22,8 +23,10 @@ export default function RootLayout({
         <AuthProvider>
           <DashboardProvider>
             <WebSocketProvider>
-              {children}
-              <GlobalNotification />
+              <ToastNotification>
+                {children}
+                <GlobalNotification />
+              </ToastNotification>
             </WebSocketProvider>
           </DashboardProvider>
         </AuthProvider>

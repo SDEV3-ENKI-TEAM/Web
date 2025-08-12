@@ -23,15 +23,15 @@ if not REFRESH_SECRET_KEY or not isinstance(REFRESH_SECRET_KEY, str):
     raise RuntimeError("JWT_REFRESH_SECRET_KEY not set or invalid")
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 15
-REFRESH_TOKEN_EXPIRE_DAYS = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
+REFRESH_TOKEN_EXPIRE_HOURS = 12
 ISSUER = "shitftx"
 AUDIENCE = "shitftx-users"
 
 redis_client = redis.Redis(
-    host=os.getenv("REDIS_HOST", "localhost"),
-    port=int(os.getenv("REDIS_PORT", 6379)),
-    db=int(os.getenv("REDIS_DB", 0)),
+    host=os.getenv("REDIS_HOST"),
+    port=int(os.getenv("REDIS_PORT")),
+    db=int(os.getenv("REDIS_DB")),
     decode_responses=True
 )
 
@@ -116,7 +116,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 def create_refresh_token(data: dict) -> str:
     """JWT Refresh Token 생성"""
-    payload = _create_token_payload(data, "refresh", timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
+    payload = _create_token_payload(data, "refresh", timedelta(hours=REFRESH_TOKEN_EXPIRE_HOURS))
     return jwt.encode(payload, REFRESH_SECRET_KEY, algorithm=ALGORITHM)
 
 def verify_token(token: str) -> Optional[dict]:

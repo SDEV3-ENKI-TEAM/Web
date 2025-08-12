@@ -153,7 +153,6 @@ class TraceConsumer:
                     if existing_alarm.get('trace_id') == trace_id:
                         # 같은 trace_id 발견, 제거
                         self.valkey_client.lrem(alarm_key, 0, existing_alarm_str)
-                        break
                 except json.JSONDecodeError:
                     continue
             

@@ -63,9 +63,9 @@ app.add_middleware(
 
 opensearch_analyzer = OpenSearchAnalyzer()
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-MONGO_DB = os.getenv("MONGO_DB", "security")
-MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "rules")
+MONGO_URI = os.getenv("MONGO_URI")
+MONGO_DB = os.getenv("MONGO_DB")
+MONGO_COLLECTION = os.getenv("MONGO_COLLECTION")
 
 try:
     mongo_client = MongoClient(MONGO_URI)
@@ -106,12 +106,20 @@ async def search_trace_by_id(
 ):
     """특정 Trace ID로 트레이스를 검색합니다."""
     try:
-        # 일시적으로 사용자별 필터링 제거 - 모든 trace에 접근 허용
+        user_id = current_user["id"]
+        username = current_user["username"]
+        
         query = {
             "query": {
                 "bool": {
                     "must": [
-                        {"term": {"traceID": trace_id}}
+                        {"term": {"traceID": trace_id}},
+                        {"bool": {
+                            "should": [
+                                {"term": {"tag.user_id": str(user_id)}},
+                                {"term": {"tag.user_id": username}}
+                            ]
+                        }}
                     ]
                 }
             },
@@ -127,7 +135,7 @@ async def search_trace_by_id(
             return {
                 "data": None,
                 "found": False,
-                "message": f"Trace ID '{trace_id}'를 찾을 수 없습니다."
+                "message": f"Trace ID '{trace_id}'를 찾을 수 없거나 접근 권한이 없습니다."
             }
         
         events = opensearch_analyzer.get_process_tree_events(trace_id)
