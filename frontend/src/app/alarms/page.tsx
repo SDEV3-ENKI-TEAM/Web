@@ -109,26 +109,14 @@ export default function AlarmsPage() {
       const currentAlarm = alarms.find((alarm) => alarm.trace_id === trace_id);
       const newCheckedStatus = !currentAlarm?.checked;
 
-      const token = localStorage.getItem("token");
-      const response = await fetch("/api/alarms/check", {
+      const { fetchWithAuth } = await import("@/lib/api");
+      const response = await fetchWithAuth("/api/alarms/check", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token && { Authorization: `Bearer ${token}` }),
-        },
         body: JSON.stringify({
           trace_id: trace_id,
           checked: newCheckedStatus,
         }),
       });
-
-      if (response.status === 401) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        sessionStorage.removeItem("refreshToken");
-        window.location.href = "/login";
-        return;
-      }
 
       if (!response.ok) {
         throw new Error("상태 업데이트 실패");

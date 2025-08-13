@@ -46,12 +46,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // 토큰 갱신 함수
   const refreshToken = async () => {
     try {
-      const refreshToken = sessionStorage.getItem("refreshToken");
+      let refreshToken = sessionStorage.getItem("refreshToken");
+
       if (!refreshToken) {
-        throw new Error("Refresh token not found");
+        refreshToken = localStorage.getItem("refreshToken");
+        if (refreshToken) {
+          console.log(
+            "refreshToken을 localStorage에서 sessionStorage로 복사합니다."
+          );
+          sessionStorage.setItem("refreshToken", refreshToken);
+        } else {
+          throw new Error("Refresh token not found");
+        }
       }
 
       const response = await fetch("/api/auth/refresh", {
@@ -74,13 +82,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       setTokenAndUpdateAxios(data.access_token);
       localStorage.setItem("token", data.access_token);
+      localStorage.setItem("refreshToken", data.refresh_token); // localStorage에도 저장
+      sessionStorage.setItem("refreshToken", data.refresh_token);
 
       document.cookie = `access_token=${data.access_token}; path=/; max-age=${
         60 * 60
       }; SameSite=Strict`;
+
+      return data.access_token; // 성공 시 새 토큰 반환
     } catch (error) {
       console.error("토큰 갱신 실패:", error);
       logout();
+      throw error; // 실패 시 에러를 다시 던짐
     }
   };
 
@@ -88,6 +101,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const initializeAuth = async () => {
       const storedUser = localStorage.getItem("user");
       const storedToken = localStorage.getItem("token");
+
+      // localStorage에 refreshToken이 있고 sessionStorage에 없으면 복사
+      const localRefreshToken = localStorage.getItem("refreshToken");
+      if (localRefreshToken && !sessionStorage.getItem("refreshToken")) {
+        console.log(
+          "초기화: refreshToken을 localStorage에서 sessionStorage로 복사합니다."
+        );
+        sessionStorage.setItem("refreshToken", localRefreshToken);
+      }
 
       if (
         storedUser &&
@@ -99,7 +121,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       ) {
         // 토큰 만료 확인
         if (isTokenExpired(storedToken)) {
-          await refreshToken();
+          try {
+            await refreshToken();
+          } catch (error) {
+            console.error("초기화 중 토큰 갱신 실패:", error);
+          }
         } else {
           setCurrentUser(storedUser);
           setTokenAndUpdateAxios(storedToken);
@@ -108,7 +134,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       } else {
         localStorage.removeItem("user");
         localStorage.removeItem("token");
-        sessionStorage.removeItem("refreshToken");
       }
       setIsLoading(false);
     };
@@ -127,6 +152,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsLoggedIn(true);
       localStorage.setItem("user", response.username);
       localStorage.setItem("token", response.token);
+      localStorage.setItem("refreshToken", response.refresh_token); // localStorage에도 저장
       sessionStorage.setItem("refreshToken", response.refresh_token);
 
       document.cookie = `access_token=${response.token}; path=/; max-age=${
@@ -138,6 +164,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsLoggedIn(false);
       localStorage.removeItem("user");
       localStorage.removeItem("token");
+      localStorage.removeItem("refreshToken");
       sessionStorage.removeItem("refreshToken");
       throw error;
     }
@@ -153,6 +180,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setIsLoggedIn(false);
     localStorage.removeItem("user");
     localStorage.removeItem("token");
+    localStorage.removeItem("refreshToken");
     sessionStorage.removeItem("refreshToken");
 
     document.cookie =

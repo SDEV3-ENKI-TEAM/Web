@@ -91,19 +91,68 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
     let wsInstance: WebSocket | null = null;
     let reconnectTimeout: NodeJS.Timeout;
 
-    const connectWebSocket = () => {
+    const connectWebSocket = async () => {
       try {
         const token = localStorage.getItem("token");
         if (!token) {
-          console.error("JWT 토큰이 없습니다. WebSocket 연결을 건너뜁니다.");
-          setWsError("로그인이 필요합니다");
-          return;
-        }
+          console.log("JWT 토큰이 없습니다. 토큰 갱신을 시도합니다.");
 
-        const wsUrl = `ws://localhost:8004/ws/alarms?token=${encodeURIComponent(
-          token
-        )}&limit=100`;
-        wsInstance = new WebSocket(wsUrl);
+          try {
+            // 토큰 갱신 시도
+            let refreshToken = sessionStorage.getItem("refreshToken");
+
+            // sessionStorage에 없고 localStorage에 있으면 복사
+            if (!refreshToken) {
+              refreshToken = localStorage.getItem("refreshToken");
+              if (refreshToken) {
+                console.log(
+                  "WS: refreshToken을 localStorage에서 sessionStorage로 복사합니다."
+                );
+                sessionStorage.setItem("refreshToken", refreshToken);
+              }
+            }
+
+            if (!refreshToken) {
+              setWsError("로그인이 필요합니다");
+              return;
+            }
+
+            const response = await fetch("/api/auth/refresh", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ refresh_token: refreshToken }),
+            });
+
+            if (!response.ok) {
+              throw new Error("토큰 갱신 실패");
+            }
+
+            const data = await response.json();
+            const newToken = data.access_token;
+
+            // 새 토큰 저장
+            localStorage.setItem("token", newToken);
+            localStorage.setItem("refreshToken", data.refresh_token);
+            sessionStorage.setItem("refreshToken", data.refresh_token);
+
+            // 새 토큰으로 WebSocket 연결
+            const wsUrl = `ws://localhost:8004/ws/alarms?token=${encodeURIComponent(
+              newToken
+            )}&limit=100`;
+            wsInstance = new WebSocket(wsUrl);
+          } catch (error) {
+            console.error("토큰 갱신 실패:", error);
+            setWsError("로그인이 필요합니다");
+            return;
+          }
+        } else {
+          const wsUrl = `ws://localhost:8004/ws/alarms?token=${encodeURIComponent(
+            token
+          )}&limit=100`;
+          wsInstance = new WebSocket(wsUrl);
+        }
 
         wsInstance.onopen = () => {
           console.log("WebSocket 연결 성공");

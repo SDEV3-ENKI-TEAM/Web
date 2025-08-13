@@ -209,7 +209,7 @@ manager = WebSocketManager()
 valkey_reader = ValkeyEventReader(
     host=os.getenv("VALKEY_HOST"),
     port=int(os.getenv("VALKEY_PORT")),
-    db=int(os.getenv("VALKEY_DB", "0"))
+    db=int(os.getenv("VALKEY_DB"))
 )
 
 @app.get("/")

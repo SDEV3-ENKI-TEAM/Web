@@ -106,6 +106,10 @@ axiosInstance.interceptors.response.use(
 
         setAuthToken(newToken);
         localStorage.setItem("token", newToken);
+        if (data.refresh_token) {
+          localStorage.setItem("refreshToken", data.refresh_token);
+          sessionStorage.setItem("refreshToken", data.refresh_token);
+        }
 
         if ((window as any).showToast) {
           (window as any).showToast("토큰이 갱신되었습니다.", "success", 2000);
@@ -129,6 +133,7 @@ axiosInstance.interceptors.response.use(
         setAuthToken(null);
         localStorage.removeItem("user");
         localStorage.removeItem("token");
+        localStorage.removeItem("refreshToken");
         sessionStorage.removeItem("refreshToken");
 
         if (!window.location.pathname.includes("/login")) {
