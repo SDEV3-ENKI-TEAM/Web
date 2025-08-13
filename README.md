@@ -101,30 +101,7 @@ npm run dev
 
 ---
 
-### 4. Spring Boot 백엔드 빌드 및 실행
-
-#### 필수 요구사항
-
-```bash
-cd backend
-./mvn clean install -DskipTests
-./mvn spring-boot:run
-# 또는
-mvn spring-boot:run  # Windows
-```
-
----
-
-### 5. Sigma 룰 MongoDB 임포트
-
-Sigma 룰을 MongoDB에 임포트하여 보안 분석에 활용할 수 있습니다.
-
-#### 필수 요구사항
-
-- MongoDB (로컬 또는 원격)
-- Python 3.8+
-
-#### 설치 및 실행
+### 4. Sigma 룰 MongoDB 임포트
 
 ```bash
 # Python 패키지 설치
@@ -146,38 +123,33 @@ python import_sigma_rules_advanced.py --dry-run
 python import_sigma_rules_advanced.py --verbose
 ```
 
-#### CLI 옵션
+---
 
-| 옵션                 | 설명                             | 기본값                                      |
-| -------------------- | -------------------------------- | ------------------------------------------- |
-| `--dir`              | Sigma 룰 디렉토리 경로           | `EventAgent-main/sigma_matcher/rules/rules` |
-| `--dry-run`          | 실제 저장하지 않고 테스트만 실행 | False                                       |
-| `--clear-collection` | 기존 컬렉션 데이터 삭제          | False                                       |
-| `--bulk-size`        | Bulk 연산 크기                   | 100                                         |
-| `--mongo-uri`        | MongoDB 연결 URI                 | `mongodb://localhost:27017`                 |
-| `--db-name`          | 데이터베이스 이름                | `security`                                  |
-| `--collection-name`  | 컬렉션 이름                      | `rules`                                     |
-| `--verbose`          | 상세 로그 출력                   | False                                       |
+### 5. env파일 생성
 
-#### 임포트된 데이터 구조
+```bash
+MYSQL_HOST
+MYSQL_PORT
+MYSQL_USER
+MYSQL_PASSWORD
+MYSQL_DATABASE
 
-각 Sigma 룰은 다음 필드로 MongoDB에 저장:
+MONGO_URI
+MONGO_DB
+MONGO_COLLECTION
 
-- `title`: 룰 제목
-- `sigma_id`: Sigma 룰 ID
-- `description`: 룰 설명
-- `level`: 위험도 레벨 (high/medium/low/critical/warning/informational)
-- `severity_score`: 위험도 점수 (high=90, medium=60, low=30)
-- `status`: 룰 상태 (stable/deprecated)
-- `logsource`: 로그 소스 정보
-- `detection`: 탐지 조건
-- `falsepositives`: 오탐 가능성
-- `author`: 작성자
-- `date`: 작성일
-- `modified`: 수정일
-- `references`: 참조 링크
-- `tags`: 태그 목록
-- `fields`: 추가 필드
-- `rule_id`: 파일명 기반 룰 ID
-- `source_file`: 원본 파일 경로
-- `imported_at`: 임포트 시간
+OPENSEARCH_HOST
+OPENSEARCH_PORT
+TRACE_INDEX_PATTERN
+
+VALKEY_HOST
+VALKEY_PORT
+VALKEY_DB
+KAFKA_BROKER
+KAFKA_TOPIC
+
+JAEGER_URL
+
+JWT_SECRET_KEY
+JWT_REFRESH_SECRET_KEY
+```
