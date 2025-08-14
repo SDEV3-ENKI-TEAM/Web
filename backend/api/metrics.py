@@ -2,7 +2,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from auth_deps import get_current_user_with_roles
+from auth.auth_deps import get_current_user_with_roles
 
 router = APIRouter(prefix="/metrics", tags=["metrics"], dependencies=[Depends(get_current_user_with_roles)])
 

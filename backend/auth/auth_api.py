@@ -12,8 +12,8 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
-from database import RefreshToken, User, UserRole, get_db
-from jwt_utils import (
+from database.database import RefreshToken, User, UserRole, get_db
+from utils.jwt_utils import (
     create_access_token,
     create_refresh_token,
     invalidate_token,
@@ -22,7 +22,7 @@ from jwt_utils import (
     verify_token,
     verify_refresh_token,
 )
-from user_models import JwtResponse, LoginRequest, MessageResponse, SignupRequest, UserResponse
+from database.user_models import JwtResponse, LoginRequest, MessageResponse, SignupRequest, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 

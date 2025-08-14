@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from fastapi import HTTPException, status
 from passlib.context import CryptContext
 
-from user_models import TokenPayload
+from database.user_models import TokenPayload
 
 env_path = Path(__file__).parent / ".env"
 load_dotenv(dotenv_path=env_path, encoding="utf-8-sig", override=True)
