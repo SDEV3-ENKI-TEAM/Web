@@ -2,10 +2,9 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
 export async function GET() {
-  const backendUrl = "http://localhost:8003/api/dashboard-stats";
+  const backendUrl = "http://localhost:8003/api/metrics/trace-stats";
 
   try {
-    // 쿠키에서 토큰 가져오기
     const cookieStore = await cookies();
     const token = cookieStore.get("access_token")?.value;
 
@@ -29,7 +28,15 @@ export async function GET() {
       );
     }
     const data = await response.json();
-    return NextResponse.json(data);
+
+    const mapped = {
+      totalEvents: data.totalTraces ?? 0,
+      anomalies: data.sigmaMatchedTraces ?? 0,
+      avgAnomaly: 0,
+      highestScore: 0,
+    };
+
+    return NextResponse.json(mapped);
   } catch (error) {
     console.error("/api/dashboard-stats 백엔드 연동 실패:", error);
     return NextResponse.json({}, { status: 500 });

@@ -3,6 +3,7 @@
 import React from "react";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
+import GlobalNotification from "@/components/GlobalNotification";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -85,6 +86,8 @@ function DashboardLayoutComponent({
           {children}
         </main>
       </div>
+
+      <GlobalNotification />
 
       <style jsx>{`
         @keyframes float {

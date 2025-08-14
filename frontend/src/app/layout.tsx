@@ -4,7 +4,6 @@ import type { Metadata } from "next";
 import { AuthProvider } from "@/context/AuthContext";
 import { DashboardProvider } from "@/context/DashboardContext";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
-import GlobalNotification from "@/components/GlobalNotification";
 import ToastNotification from "@/components/ToastNotification";
 
 export const metadata: Metadata = {
@@ -23,10 +22,7 @@ export default function RootLayout({
         <AuthProvider>
           <DashboardProvider>
             <WebSocketProvider>
-              <ToastNotification>
-                {children}
-                <GlobalNotification />
-              </ToastNotification>
+              <ToastNotification>{children}</ToastNotification>
             </WebSocketProvider>
           </DashboardProvider>
         </AuthProvider>

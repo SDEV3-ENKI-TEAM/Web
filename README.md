@@ -70,7 +70,6 @@ AI-Detector/
 - Node.js 18+
 - OpenSearch
 - MongoDB (Sigma 룰 저장용)
-- (Spring Boot 백엔드 사용 시) JDK 11+, Maven 3.6+
 - MySQL
 
 ---

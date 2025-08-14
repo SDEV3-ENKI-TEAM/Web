@@ -24,7 +24,7 @@ from jwt_utils import (
 )
 from user_models import JwtResponse, LoginRequest, MessageResponse, SignupRequest, UserResponse
 
-router = APIRouter(prefix="/api/auth", tags=["authentication"])
+router = APIRouter(prefix="/auth", tags=["authentication"])
 
 limiter = Limiter(key_func=get_remote_address)
 security = HTTPBearer()

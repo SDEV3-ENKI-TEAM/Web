@@ -19,6 +19,138 @@ export const setAuthToken = (token: string | null) => {
   currentToken = token;
 };
 
+// Cross-tab coordination via BroadcastChannel
+const AUTH_CHANNEL_NAME = "auth";
+const authChannel: BroadcastChannel | null =
+  typeof window !== "undefined" && "BroadcastChannel" in window
+    ? new BroadcastChannel(AUTH_CHANNEL_NAME)
+    : null;
+let crossTabRefreshing = false;
+let crossTabWaiters: Array<{
+  resolve: (t: string) => void;
+  reject: (e: any) => void;
+}> = [];
+
+const notifyCrossTabDone = (token: string, refreshToken?: string) => {
+  if (authChannel) {
+    authChannel.postMessage({ type: "refresh:done", token, refreshToken });
+  }
+};
+const notifyCrossTabStart = () => {
+  if (authChannel) {
+    authChannel.postMessage({ type: "refresh:start" });
+  }
+};
+const notifyCrossTabError = (message: string) => {
+  if (authChannel) {
+    authChannel.postMessage({ type: "refresh:error", message });
+  }
+};
+
+if (authChannel) {
+  authChannel.onmessage = (event) => {
+    const data = event.data || {};
+    if (data.type === "refresh:start") {
+      crossTabRefreshing = true;
+    } else if (data.type === "refresh:done") {
+      crossTabRefreshing = false;
+      const token = data.token as string;
+      const rtoken = data.refreshToken as string | undefined;
+      if (token) {
+        currentToken = token;
+        localStorage.setItem("token", token);
+      }
+      if (rtoken) {
+        localStorage.setItem("refreshToken", rtoken);
+        sessionStorage.setItem("refreshToken", rtoken);
+      }
+      crossTabWaiters.forEach((w) => w.resolve(token));
+      crossTabWaiters = [];
+    } else if (data.type === "refresh:error") {
+      crossTabRefreshing = false;
+      crossTabWaiters.forEach((w) =>
+        w.reject(new Error(data.message || "refresh failed"))
+      );
+      crossTabWaiters = [];
+    }
+  };
+}
+
+const waitForCrossTab = async (): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    crossTabWaiters.push({ resolve, reject });
+    // Fallback timeout
+    setTimeout(() => {
+      reject(new Error("Cross-tab refresh timeout"));
+    }, 15000);
+  });
+};
+
+export async function refreshAccessToken(): Promise<string> {
+  if (isRefreshing) {
+    return new Promise((resolve, reject) => {
+      failedQueue.push({ resolve, reject });
+    });
+  }
+
+  if (crossTabRefreshing) {
+    return waitForCrossTab();
+  }
+
+  isRefreshing = true;
+  notifyCrossTabStart();
+  try {
+    let refreshToken = sessionStorage.getItem("refreshToken");
+    if (!refreshToken) {
+      const fromLocal = localStorage.getItem("refreshToken");
+      if (fromLocal) {
+        sessionStorage.setItem("refreshToken", fromLocal);
+        refreshToken = fromLocal;
+      }
+    }
+    if (!refreshToken) {
+      throw new Error("Refresh token not found");
+    }
+
+    const response = await fetch("/api/auth/refresh", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Token refresh failed");
+    }
+
+    const data = await response.json();
+    const newToken = data.access_token as string;
+
+    setAuthToken(newToken);
+    localStorage.setItem("token", newToken);
+    if (data.refresh_token) {
+      localStorage.setItem("refreshToken", data.refresh_token);
+      sessionStorage.setItem("refreshToken", data.refresh_token);
+    }
+
+    processQueue(null, newToken);
+    notifyCrossTabDone(newToken, data.refresh_token);
+    return newToken;
+  } catch (err) {
+    processQueue(err, null);
+    setAuthToken(null);
+    notifyCrossTabError((err as Error)?.message || "Token refresh failed");
+    localStorage.removeItem("user");
+    localStorage.removeItem("token");
+    localStorage.removeItem("refreshToken");
+    sessionStorage.removeItem("refreshToken");
+    throw err;
+  } finally {
+    isRefreshing = false;
+  }
+}
+
 const axiosInstance = axios.create({
   baseURL: "http://localhost:8003/api",
   headers: {
@@ -59,7 +191,7 @@ axiosInstance.interceptors.response.use(
     const originalRequest = error.config;
 
     if (error.response?.status === 401 && !originalRequest._retry) {
-      if (isRefreshing) {
+      if (isRefreshing || crossTabRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
         })
@@ -73,76 +205,16 @@ axiosInstance.interceptors.response.use(
       }
 
       originalRequest._retry = true;
-      isRefreshing = true;
 
       try {
-        const refreshToken = sessionStorage.getItem("refreshToken");
-        if (!refreshToken) {
-          throw new Error("Refresh token not found");
-        }
-
-        if ((window as any).showToast) {
-          (window as any).showToast(
-            "토큰을 갱신하고 있습니다...",
-            "info",
-            2000
-          );
-        }
-
-        const response = await fetch("/api/auth/refresh", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ refresh_token: refreshToken }),
-        });
-
-        if (!response.ok) {
-          throw new Error("Token refresh failed");
-        }
-
-        const data = await response.json();
-        const newToken = data.access_token;
-
-        setAuthToken(newToken);
-        localStorage.setItem("token", newToken);
-        if (data.refresh_token) {
-          localStorage.setItem("refreshToken", data.refresh_token);
-          sessionStorage.setItem("refreshToken", data.refresh_token);
-        }
-
-        if ((window as any).showToast) {
-          (window as any).showToast("토큰이 갱신되었습니다.", "success", 2000);
-        }
-
-        processQueue(null, newToken);
-
+        const newToken = await refreshAccessToken();
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
         return axiosInstance.request(originalRequest);
       } catch (refreshError) {
-        processQueue(refreshError, null);
-
-        if ((window as any).showToast) {
-          (window as any).showToast(
-            "세션이 만료되었습니다. 다시 로그인해주세요.",
-            "error",
-            5000
-          );
-        }
-
-        setAuthToken(null);
-        localStorage.removeItem("user");
-        localStorage.removeItem("token");
-        localStorage.removeItem("refreshToken");
-        sessionStorage.removeItem("refreshToken");
-
         if (!window.location.pathname.includes("/login")) {
           window.location.href = "/login";
         }
-
         return Promise.reject(refreshError);
-      } finally {
-        isRefreshing = false;
       }
     }
 

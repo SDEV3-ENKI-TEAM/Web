@@ -33,41 +33,37 @@ function timeAgo(dateNum: number) {
 }
 
 export default function GlobalNotification() {
-  const { notifications, clearNotifications } = useWebSocket();
+  const { dequeueNotification, dismissNotification } = useWebSocket();
   const [visibleNotifications, setVisibleNotifications] = useState<Alarm[]>([]);
   const router = useRouter();
 
   useEffect(() => {
-    if (notifications.length > 0) {
-      // 새로운 알림이 들어오면 표시
-      const newNotification = notifications[0];
-      setVisibleNotifications((prev) => [newNotification, ...prev.slice(0, 2)]);
-
-      // 5초 후 자동으로 제거
-      const timer = setTimeout(() => {
+    const next = dequeueNotification();
+    if (next) {
+      setVisibleNotifications((prev) => [next, ...prev.slice(0, 2)]);
+      const t = setTimeout(() => {
         setVisibleNotifications((prev) =>
-          prev.filter((n) => n.trace_id !== newNotification.trace_id)
+          prev.filter((n) => n.trace_id !== next.trace_id)
         );
+        dismissNotification(next.trace_id);
       }, 5000);
-
-      return () => clearTimeout(timer);
+      return () => clearTimeout(t);
     }
-  }, [notifications]);
+  }, [dequeueNotification]);
 
   const handleNotificationClick = (alarm: Alarm) => {
-    // 알림 클릭 시 alarms 페이지로 이동
     router.push(`/alarms/${alarm.trace_id}`);
-
-    // 클릭된 알림 제거
     setVisibleNotifications((prev) =>
       prev.filter((n) => n.trace_id !== alarm.trace_id)
     );
+    dismissNotification(alarm.trace_id);
   };
 
   const handleClose = (traceId: string) => {
     setVisibleNotifications((prev) =>
       prev.filter((n) => n.trace_id !== traceId)
     );
+    dismissNotification(traceId);
   };
 
   if (visibleNotifications.length === 0) {

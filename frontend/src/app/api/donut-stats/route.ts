@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const backendUrl = "http://localhost:8003/api/donut-stats";
+  const backendUrl = "http://localhost:8003/api/metrics/donut-stats";
   try {
     // Authorization 헤더 추출
     const authHeader = request.headers.get("authorization");

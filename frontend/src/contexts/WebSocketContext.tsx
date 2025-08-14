@@ -8,6 +8,7 @@ import React, {
   ReactNode,
   useRef,
 } from "react";
+import { refreshAccessToken } from "@/lib/axios";
 
 interface Alarm {
   trace_id: string;
@@ -34,6 +35,8 @@ interface WebSocketContextType {
   addNotification: (alarm: Alarm) => void;
   clearNotifications: () => void;
   updateAlarm: (traceId: string, updates: Partial<Alarm>) => void;
+  dequeueNotification: () => Alarm | null;
+  dismissNotification: (id: string) => void;
 }
 
 const WebSocketContext = createContext<WebSocketContextType | undefined>(
@@ -52,6 +55,8 @@ interface WebSocketProviderProps {
   children: ReactNode;
 }
 
+const DISMISSED_STORAGE_KEY = "dismissed_notifications";
+
 export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
   children,
 }) => {
@@ -61,10 +66,8 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
   const [wsConnected, setWsConnected] = useState(false);
   const [wsError, setWsError] = useState<string | null>(null);
 
-  // 강조표시 자동 제거를 위한 타이머 관리
   const highlightTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
-  // 강조표시 자동 제거 함수
   const removeHighlight = (traceId: string) => {
     setAlarms((prev) =>
       prev.map((alarm) =>
@@ -74,88 +77,76 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
     highlightTimers.current.delete(traceId);
   };
 
-  // 강조표시 설정 함수
   const setHighlight = (traceId: string, duration: number = 5000) => {
-    // 기존 타이머가 있으면 제거
     const existingTimer = highlightTimers.current.get(traceId);
     if (existingTimer) {
       clearTimeout(existingTimer);
     }
-
-    // 새로운 타이머 설정
     const timer = setTimeout(() => removeHighlight(traceId), duration);
     highlightTimers.current.set(traceId, timer);
   };
 
+  const isUnmountedRef = useRef(false);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const recentMapRef = useRef<Map<string, number>>(new Map());
+  const dismissedRef = useRef<Record<string, number>>({});
+
+  const pruneRecent = () => {
+    const now = Date.now();
+    const m = recentMapRef.current;
+    Array.from(m.entries()).forEach(([k, expire]) => {
+      if (expire <= now) m.delete(k);
+    });
+  };
+
+  const loadDismissed = () => {
+    try {
+      const raw = localStorage.getItem(DISMISSED_STORAGE_KEY);
+      const obj = raw ? (JSON.parse(raw) as Record<string, number>) : {};
+      const now = Date.now();
+      const pruned: Record<string, number> = {};
+      Object.entries(obj).forEach(([k, t]) => {
+        if (t > now) pruned[k] = t;
+      });
+      dismissedRef.current = pruned;
+      localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify(pruned));
+    } catch {}
+  };
+
+  const saveDismissed = () => {
+    try {
+      localStorage.setItem(
+        DISMISSED_STORAGE_KEY,
+        JSON.stringify(dismissedRef.current)
+      );
+    } catch {}
+  };
+
+  useEffect(() => {
+    loadDismissed();
+  }, []);
+
   useEffect(() => {
     let wsInstance: WebSocket | null = null;
-    let reconnectTimeout: NodeJS.Timeout;
 
     const connectWebSocket = async () => {
       try {
-        const token = localStorage.getItem("token");
+        let token = localStorage.getItem("token");
         if (!token) {
-          console.log("JWT 토큰이 없습니다. 토큰 갱신을 시도합니다.");
-
           try {
-            // 토큰 갱신 시도
-            let refreshToken = sessionStorage.getItem("refreshToken");
-
-            // sessionStorage에 없고 localStorage에 있으면 복사
-            if (!refreshToken) {
-              refreshToken = localStorage.getItem("refreshToken");
-              if (refreshToken) {
-                console.log(
-                  "WS: refreshToken을 localStorage에서 sessionStorage로 복사합니다."
-                );
-                sessionStorage.setItem("refreshToken", refreshToken);
-              }
-            }
-
-            if (!refreshToken) {
-              setWsError("로그인이 필요합니다");
-              return;
-            }
-
-            const response = await fetch("/api/auth/refresh", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ refresh_token: refreshToken }),
-            });
-
-            if (!response.ok) {
-              throw new Error("토큰 갱신 실패");
-            }
-
-            const data = await response.json();
-            const newToken = data.access_token;
-
-            // 새 토큰 저장
-            localStorage.setItem("token", newToken);
-            localStorage.setItem("refreshToken", data.refresh_token);
-            sessionStorage.setItem("refreshToken", data.refresh_token);
-
-            // 새 토큰으로 WebSocket 연결
-            const wsUrl = `ws://localhost:8004/ws/alarms?token=${encodeURIComponent(
-              newToken
-            )}&limit=100`;
-            wsInstance = new WebSocket(wsUrl);
+            token = await refreshAccessToken();
           } catch (error) {
-            console.error("토큰 갱신 실패:", error);
             setWsError("로그인이 필요합니다");
             return;
           }
-        } else {
-          const wsUrl = `ws://localhost:8004/ws/alarms?token=${encodeURIComponent(
-            token
-          )}&limit=100`;
-          wsInstance = new WebSocket(wsUrl);
         }
 
+        const wsUrl = `ws://localhost:8004/ws/alarms?token=${encodeURIComponent(
+          token
+        )}&limit=100`;
+        wsInstance = new WebSocket(wsUrl);
+
         wsInstance.onopen = () => {
-          console.log("WebSocket 연결 성공");
           setWsConnected(true);
           setWsError(null);
         };
@@ -163,48 +154,43 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
         wsInstance.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
-            console.log("WebSocket 메시지 수신:", data.type);
-
             if (data.type === "initial_data") {
               const initialAlarms = data.alarms || [];
               setAlarms(initialAlarms);
             } else if (data.type === "new_trace") {
-              const newAlarm = data.data;
-
-              // alarms 상태 업데이트
+              const newAlarm: Alarm = data.data;
+              const key = newAlarm.trace_id;
+              pruneRecent();
+              const now = Date.now();
+              const recentExpire = recentMapRef.current.get(key) || 0;
+              const dismissedExpire = dismissedRef.current[key] || 0;
+              if (recentExpire > now || dismissedExpire > now) return;
+              recentMapRef.current.set(key, now + 10000);
               setAlarms((prevAlarms) => {
                 const exists = prevAlarms.find(
                   (alarm) => alarm.trace_id === newAlarm.trace_id
                 );
                 if (exists) return prevAlarms;
-
                 const newAlarmWithHighlight = {
                   ...newAlarm,
                   isUpdated: true,
                   detected_at: newAlarm.detected_at,
                 };
-
-                // 강조표시 타이머 설정
                 setHighlight(newAlarm.trace_id, 5000);
-
                 return [newAlarmWithHighlight, ...prevAlarms.slice(0, 99)];
               });
-
-              // notifications에 추가 (새로운 알림)
               setNotifications((prev) => [
                 {
                   ...newAlarm,
                   isUpdated: true,
                   detected_at: newAlarm.detected_at,
                 },
-                ...prev.slice(0, 4), // 최대 5개 알림 유지
+                ...prev,
               ]);
             } else if (data.type === "trace_update") {
               if (!data.trace_id || !data.data) {
-                console.warn("업데이트 데이터가 유효하지 않음:", data);
                 return;
               }
-
               setAlarms((prevAlarms) => {
                 return prevAlarms.map((alarm) => {
                   if (alarm.trace_id === data.trace_id) {
@@ -212,86 +198,86 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
                       ...alarm,
                       ...data.data,
                       detected_at: alarm.detected_at,
-                      isUpdated: true, // 업데이트된 trace도 강조 효과 적용
+                      isUpdated: true,
                     };
-
-                    // 강조표시 타이머 설정
                     setHighlight(data.trace_id, 3000);
-
                     return updatedAlarm;
                   }
                   return alarm;
                 });
               });
-
-              // 업데이트된 trace도 알림에 추가
-              const updatedAlarm = data.data;
-              setNotifications((prev) => [
-                {
-                  ...updatedAlarm,
-                  isUpdated: true,
-                  detected_at: updatedAlarm.detected_at,
-                },
-                ...prev.slice(0, 4), // 최대 5개 알림 유지
-              ]);
             }
-          } catch (e) {
-            console.error("WebSocket 메시지 파싱 오류:", e);
-          }
+          } catch (e) {}
         };
 
         wsInstance.onclose = (event) => {
-          console.log("WebSocket 연결 해제:", event.code, event.reason);
           setWsConnected(false);
-
-          // JWT 토큰 관련 오류인 경우 재연결하지 않음
           if (event.code === 4001 || event.code === 4002) {
-            console.error("JWT 토큰 오류:", event.reason);
             setWsError("인증 오류: " + event.reason);
             return;
           }
-
-          // 자동 재연결
-          reconnectTimeout = setTimeout(() => {
-            console.log("WebSocket 재연결 시도...");
+          if (isUnmountedRef.current) return;
+          if (reconnectTimeoutRef.current)
+            clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = setTimeout(() => {
             connectWebSocket();
           }, 3000);
         };
 
-        wsInstance.onerror = (error) => {
-          console.error("WebSocket 오류:", error);
+        wsInstance.onerror = () => {
           setWsError("WebSocket 연결 오류");
         };
 
         setWs(wsInstance);
-      } catch (e) {
-        console.error("WebSocket 연결 실패:", e);
-        setWsError("WebSocket 연결 실패");
-        connectWebSocket();
+      } catch (error) {
+        setWsError("연결 실패");
       }
     };
 
     connectWebSocket();
 
     return () => {
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
+      isUnmountedRef.current = true;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
       if (wsInstance) {
-        wsInstance.close();
+        try {
+          wsInstance.close();
+        } catch {}
       }
-      // 강조표시 타이머 정리
-      highlightTimers.current.forEach((timer) => clearTimeout(timer));
-      highlightTimers.current.clear();
     };
   }, []);
 
   const addNotification = (alarm: Alarm) => {
-    setNotifications((prev) => [alarm, ...prev.slice(0, 4)]);
+    setNotifications((prev) => [alarm, ...prev]);
   };
 
   const clearNotifications = () => {
     setNotifications([]);
+  };
+
+  const dequeueNotification = (): Alarm | null => {
+    let next: Alarm | null = null;
+    setNotifications((prev) => {
+      if (prev.length === 0) {
+        next = null;
+        return prev;
+      }
+      const [, ...rest] = prev;
+      next = prev[0];
+      return rest;
+    });
+    return next;
+  };
+
+  const dismissNotification = (id: string) => {
+    const ttl = 30 * 60 * 1000;
+    const expire = Date.now() + ttl;
+    dismissedRef.current[id] = expire;
+    saveDismissed();
+    setNotifications((prev) => prev.filter((n) => n.trace_id !== id));
   };
 
   const updateAlarm = (traceId: string, updates: Partial<Alarm>) => {
@@ -302,19 +288,21 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
     );
   };
 
-  const value: WebSocketContextType = {
-    ws,
-    alarms,
-    notifications,
-    wsConnected,
-    wsError,
-    addNotification,
-    clearNotifications,
-    updateAlarm,
-  };
-
   return (
-    <WebSocketContext.Provider value={value}>
+    <WebSocketContext.Provider
+      value={{
+        ws,
+        alarms,
+        notifications,
+        wsConnected,
+        wsError,
+        addNotification,
+        clearNotifications,
+        updateAlarm,
+        dequeueNotification,
+        dismissNotification,
+      }}
+    >
       {children}
     </WebSocketContext.Provider>
   );

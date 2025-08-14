@@ -1,57 +1,18 @@
 import { Stats } from "@/types/event";
-
-// 토큰 갱신 함수 추가
-async function refreshAuthToken() {
-  try {
-    // sessionStorage에서 먼저 확인
-    let refreshToken = sessionStorage.getItem("refreshToken");
-
-    // sessionStorage에 없고 localStorage에 있으면 복사
-    if (!refreshToken) {
-      refreshToken = localStorage.getItem("refreshToken");
-      if (refreshToken) {
-        console.log(
-          "API: refreshToken을 localStorage에서 sessionStorage로 복사합니다."
-        );
-        sessionStorage.setItem("refreshToken", refreshToken);
-      } else {
-        throw new Error("Refresh token not found");
-      }
-    }
-
-    const response = await fetch("/api/auth/refresh", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Token refresh failed: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const newToken = data.access_token;
-
-    // 새 토큰 저장
-    localStorage.setItem("token", newToken);
-    localStorage.setItem("refreshToken", data.refresh_token);
-    sessionStorage.setItem("refreshToken", data.refresh_token);
-
-    return newToken;
-  } catch (error) {
-    console.error("토큰 갱신 실패:", error);
-    throw error;
-  }
-}
+import { refreshAccessToken } from "@/lib/axios";
 
 export async function fetchWithAuth(
   url: string,
   options: RequestInit = {},
   retryCount = 0
 ) {
-  const token = localStorage.getItem("token");
+  let token = localStorage.getItem("token");
+
+  if (!token) {
+    try {
+      token = await refreshAccessToken();
+    } catch {}
+  }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -67,24 +28,20 @@ export async function fetchWithAuth(
     headers,
   });
 
-  if (response.status === 401 && retryCount < 1) {
+  if ((response.status === 401 || response.status === 403) && retryCount < 1) {
     try {
-      console.log("401 에러 발생, 토큰 갱신 시도...");
-      const newToken = await refreshAuthToken();
+      const newToken = await refreshAccessToken();
 
-      // 새 헤더로 재시도
       const newHeaders = {
         ...headers,
         Authorization: `Bearer ${newToken}`,
       };
 
-      // 재요청
       return fetch(url, {
         ...options,
         headers: newHeaders,
       });
     } catch (refreshError) {
-      console.error("토큰 갱신 실패, 로그아웃 처리:", refreshError);
       localStorage.removeItem("token");
       localStorage.removeItem("user");
       localStorage.removeItem("refreshToken");
@@ -107,22 +64,22 @@ export async function fetchStats(): Promise<Stats> {
 }
 
 export async function fetchTimeseries(): Promise<any[]> {
-  const response = await fetchWithAuth("/api/timeseries");
+  const response = await fetchWithAuth("/api/metrics/timeseries");
   return await response.json();
 }
 
 export async function fetchDonutStats(): Promise<any> {
-  const response = await fetchWithAuth("/api/donut-stats");
+  const response = await fetchWithAuth("/api/metrics/donut-stats");
   return await response.json();
 }
 
 export async function fetchBarChart(): Promise<any[]> {
-  const response = await fetchWithAuth("/api/bar-chart");
+  const response = await fetchWithAuth("/api/metrics/bar-chart");
   return await response.json();
 }
 
 export async function fetchHeatMap(): Promise<any[]> {
-  const response = await fetchWithAuth("/api/heatmap");
+  const response = await fetchWithAuth("/api/metrics/heatmap");
   return await response.json();
 }
 
@@ -139,7 +96,7 @@ export async function fetchInfiniteAlarms(
 }
 
 export async function fetchTraceStats(): Promise<any> {
-  const response = await fetchWithAuth("/api/trace-stats");
+  const response = await fetchWithAuth("/api/metrics/trace-stats");
   return await response.json();
 }
 
