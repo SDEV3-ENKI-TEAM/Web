@@ -43,20 +43,7 @@ class UserRole(Base):
     __tablename__ = "user_roles"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False)
     role = Column(String(50), nullable=False)
-
-class Agent(Base):
-    """Agent 모델"""
-    __tablename__ = "agents"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False)
-    agent_key = Column(String(255), unique=True, index=True, nullable=False)
-    name = Column(String(100), nullable=False)
-    status = Column(String(20), default="active")
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 class RefreshToken(Base):
     """Refresh Token 모델"""

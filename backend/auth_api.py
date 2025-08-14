@@ -12,7 +12,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
-from database import Agent, RefreshToken, User, UserRole, get_db
+from database import RefreshToken, User, UserRole, get_db
 from jwt_utils import (
     create_access_token,
     create_refresh_token,
@@ -227,28 +227,6 @@ async def logout(
     except Exception as e:
         return {"message": "로그아웃 처리 중 오류 발생"}
 
-@router.post("/agent/register", response_model=MessageResponse)
-async def register_agent(
-    agent_name: str,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
-):
-    """Agent 등록"""
-    user_info = _verify_user_token(credentials)
-    user = _get_user_from_token(db, user_info)
-    
-    agent_key = generate_agent_key()
-    
-    new_agent = Agent(
-        user_id=user.id,
-        agent_key=agent_key,
-        name=agent_name
-    )
-    db.add(new_agent)
-    db.commit()
-    
-    return MessageResponse(message=f"Agent가 성공적으로 등록되었습니다. Agent 키: {agent_key}")
-
 @router.post("/refresh")
 @limiter.limit("10/minute")
 async def refresh_token(request: Request, refresh_request: RefreshTokenRequest, db: Session = Depends(get_db)):
@@ -261,7 +239,6 @@ async def refresh_token(request: Request, refresh_request: RefreshTokenRequest, 
             detail="유효하지 않은 Refresh Token"
         )
     
-    # 저장된 refresh 토큰 검증
     if not verify_stored_refresh_token(db, refresh_token, user_info["user_id"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -271,7 +248,6 @@ async def refresh_token(request: Request, refresh_request: RefreshTokenRequest, 
     user = _get_user_from_token(db, user_info)
     roles = _get_user_roles(db, user.id)
     
-    # 기존 refresh 토큰 무효화
     revoke_refresh_token(db, refresh_token, user_info["user_id"])
     
     token_data = _create_token_data(user, roles)
@@ -301,26 +277,4 @@ async def get_current_user(
         username=user.username,
         roles=roles,
         created_at=user.created_at
-    )
-
-@router.get("/agents", response_model=List[dict])
-async def get_user_agents(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
-):
-    """사용자의 Agent 목록 조회"""
-    user_info = _verify_user_token(credentials)
-    user = _get_user_from_token(db, user_info)
-    
-    agents = db.query(Agent).filter(Agent.user_id == user.id).all()
-    
-    return [
-        {
-            "id": agent.id,
-            "name": agent.name,
-            "agent_key": agent.agent_key,
-            "status": agent.status,
-            "created_at": agent.created_at
-        }
-        for agent in agents
-    ] 
+    ) 
