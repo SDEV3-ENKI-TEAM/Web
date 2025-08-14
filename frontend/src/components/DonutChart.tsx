@@ -4,6 +4,7 @@ import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
 import { Doughnut } from "react-chartjs-2";
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
+import { fetchDonutStats } from "@/lib/api";
 
 ChartJS.register(ArcElement, Tooltip, Legend);
 
@@ -40,18 +41,10 @@ export default function DonutChart({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchStats = async () => {
+    const load = async () => {
       try {
-        const response = await fetch("/api/donut-stats", {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-            "Content-Type": "application/json",
-          },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setStats(data);
-        }
+        const data = await fetchDonutStats();
+        setStats(data);
       } catch (error) {
         console.error("도넛 차트 데이터 로드 실패:", error);
       } finally {
@@ -59,7 +52,7 @@ export default function DonutChart({
       }
     };
 
-    fetchStats();
+    load();
   }, []);
   if (loading) {
     return (

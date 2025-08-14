@@ -43,6 +43,7 @@ class UserRole(Base):
     __tablename__ = "user_roles"
     
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False)
     role = Column(String(50), nullable=False)
 
 class RefreshToken(Base):

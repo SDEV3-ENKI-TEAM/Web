@@ -12,8 +12,10 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS user_roles (
 	id INT AUTO_INCREMENT PRIMARY KEY,
+	user_id INT NOT NULL,
 	role VARCHAR(50) NOT NULL,
-	UNIQUE KEY uq_user_roles_role (role)
+	INDEX idx_user_roles_user_id (user_id),
+	CONSTRAINT fk_user_roles_user_id FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 
