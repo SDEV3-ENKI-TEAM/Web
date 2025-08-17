@@ -181,23 +181,29 @@ class OpenSearchAnalyzer:
         )
         
         has_alert = (
-            'sigma.alert' in tags or 
+            'sigma.alert' in tags or
+            'sigma@alert' in tags or
             tags.get('error') == 'true' or
-            tags.get('error') == True or
+            tags.get('error') is True or
+            (str(tags.get('otel@status_code', '')).upper() == 'ERROR') or
             'alert' in tags or
             tags.get('sigma.alert') or
+            tags.get('sigma@alert') or
             tags.get('alert') or
             tags.get('sigma_alert')
         )
-        
+
         alert_message = (
-            tags.get('sigma.alert') or 
-            tags.get('alert') or 
+            tags.get('sigma.alert') or
+            tags.get('sigma@alert') or
+            tags.get('sigma@rule_title') or
+            tags.get('alert') or
             tags.get('sigma_alert') or
             tags.get('RuleName') or
+            tags.get('otel@status_description') or
             tags.get('FormattedMessage') or
             tags.get('message') or
-            (tags.get('error') if tags.get('error') != True else 'Suspicious activity detected') or
+            (tags.get('error') if tags.get('error') is not True else 'Suspicious activity detected') or
             ''
         )
         
@@ -224,6 +230,10 @@ class OpenSearchAnalyzer:
             "destination_ip": tags.get('DestinationIp') or tags.get('destination_ip') or '',
             "destination_port": tags.get('DestinationPort') or tags.get('destination_port') or '',
             "user": tags.get('User') or tags.get('user') or '',
+            "sigma_alert": tags.get('sigma@alert') or tags.get('sigma.alert') or tags.get('sigma_alert') or '',
+            "sigma_rule_title": tags.get('sigma@rule_title') or '',
+            "otel_status_code": tags.get('otel@status_code') or '',
+            "otel_status_description": tags.get('otel@status_description') or '',
             "has_alert": has_alert,
             "alert_message": alert_message,
             "severity": "high" if has_alert else "low",
@@ -233,27 +243,20 @@ class OpenSearchAnalyzer:
         }
     
     def get_process_tree_events(self, trace_id: str) -> List[Dict]:
-        """특정 트레이스의 프로세스 트리 이벤트를 가져옵니다."""
         query = {
-            "query": {
-                "term": {
-                    "traceID": trace_id
-                }
-            },
-            "sort": [{"startTime": {"order": "asc"}}],
-            "size": 100
+            "query": {"term": {"traceID": trace_id}},
+            "sort": [{"startTimeMillis": {"order": "asc"}}],
+            "size": 1000
         }
-        
         try:
             response = self.client.search(index="jaeger-span-*", body=query)
             all_spans = response['hits']['hits']
-            all_spans.sort(key=lambda x: x['_source'].get('startTime', 0))
+            all_spans.sort(key=lambda x: x['_source'].get('startTimeMillis', 0))
         except Exception as e:
             print(f"검색 실패: {e}")
             return []
-        
-        events = []
-        for i, span in enumerate(all_spans):
+        events: List[Dict] = []
+        for span in all_spans:
             source = span['_source']
             events.append(source)
         return events

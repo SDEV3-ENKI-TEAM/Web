@@ -12,7 +12,7 @@ import { refreshAccessToken } from "@/lib/axios";
 
 interface Alarm {
   trace_id: string;
-  detected_at: number;
+  detected_at: number | string;
   summary: string;
   host: string;
   os: string;
@@ -27,7 +27,7 @@ interface Alarm {
 }
 
 interface WebSocketContextType {
-  ws: WebSocket | null;
+  ws: EventSource | null;
   alarms: Alarm[];
   notifications: Alarm[];
   wsConnected: boolean;
@@ -62,7 +62,7 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
 }) => {
   const [alarms, setAlarms] = useState<Alarm[]>([]);
   const [notifications, setNotifications] = useState<Alarm[]>([]);
-  const [ws, setWs] = useState<WebSocket | null>(null);
+  const [ws, setWs] = useState<EventSource | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [wsError, setWsError] = useState<string | null>(null);
 
@@ -127,9 +127,9 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
   }, []);
 
   useEffect(() => {
-    let wsInstance: WebSocket | null = null;
+    let esInstance: EventSource | null = null;
 
-    const connectWebSocket = async () => {
+    const connectSSE = async () => {
       try {
         let token = localStorage.getItem("token");
         if (!token) {
@@ -141,17 +141,24 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
           }
         }
 
-        const wsUrl = `ws://localhost:8004/ws/alarms?token=${encodeURIComponent(
+        const sseUrl = `http://localhost:8004/sse/alarms?token=${encodeURIComponent(
           token
         )}&limit=100`;
-        wsInstance = new WebSocket(wsUrl);
 
-        wsInstance.onopen = () => {
+        try {
+          esInstance = new EventSource(sseUrl);
+        } catch (e) {
+          setWsError("SSE 연결 생성 실패");
+          scheduleReconnect();
+          return;
+        }
+
+        esInstance.onopen = () => {
           setWsConnected(true);
           setWsError(null);
         };
 
-        wsInstance.onmessage = (event) => {
+        esInstance.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
             if (data.type === "initial_data") {
@@ -199,7 +206,7 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
                       ...data.data,
                       detected_at: alarm.detected_at,
                       isUpdated: true,
-                    };
+                    } as Alarm;
                     setHighlight(data.trace_id, 3000);
                     return updatedAlarm;
                   }
@@ -210,31 +217,31 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
           } catch (e) {}
         };
 
-        wsInstance.onclose = (event) => {
+        esInstance.onerror = () => {
           setWsConnected(false);
-          if (event.code === 4001 || event.code === 4002) {
-            setWsError("인증 오류: " + event.reason);
-            return;
-          }
-          if (isUnmountedRef.current) return;
-          if (reconnectTimeoutRef.current)
-            clearTimeout(reconnectTimeoutRef.current);
-          reconnectTimeoutRef.current = setTimeout(() => {
-            connectWebSocket();
-          }, 3000);
+          setWsError("SSE 연결 오류");
+          try {
+            esInstance?.close();
+          } catch {}
+          if (!isUnmountedRef.current) scheduleReconnect();
         };
 
-        wsInstance.onerror = () => {
-          setWsError("WebSocket 연결 오류");
-        };
-
-        setWs(wsInstance);
+        setWs(esInstance);
       } catch (error) {
         setWsError("연결 실패");
+        scheduleReconnect();
       }
     };
 
-    connectWebSocket();
+    const scheduleReconnect = () => {
+      if (reconnectTimeoutRef.current)
+        clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = setTimeout(() => {
+        connectSSE();
+      }, 3000);
+    };
+
+    connectSSE();
 
     return () => {
       isUnmountedRef.current = true;
@@ -242,9 +249,9 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
-      if (wsInstance) {
+      if (esInstance) {
         try {
-          wsInstance.close();
+          esInstance.close();
         } catch {}
       }
     };

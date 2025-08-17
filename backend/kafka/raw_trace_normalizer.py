@@ -14,8 +14,6 @@ logger = logging.getLogger(__name__)
 
 def _get_attr_value(attr_value_obj: Dict[str, Any]) -> Any:
     """Extract primitive value from OTLP Attribute value object."""
-    if not isinstance(attr_value_obj, dict):
-        return attr_value_obj
     for key in ("stringValue", "intValue", "boolValue", "doubleValue"):
         if key in attr_value_obj:
             value = attr_value_obj[key]
@@ -60,6 +58,7 @@ def _group_spans_by_trace(resource_spans_obj: Dict[str, Any]) -> Dict[str, List[
 
             transformed_span = {
                 "operationName": operation_name,
+                "spanId": span.get("spanId"),
                 "tags": tags
             }
 
@@ -97,20 +96,6 @@ def _compute_detected_at_ms(resource_spans_obj: Dict[str, Any], spans_by_trace: 
 
     return trace_id_to_earliest_ms
 
-
-def _has_sigma_or_error(spans: List[Dict[str, Any]]) -> bool:
-    has_sigma = False
-    has_error = False
-    for span in spans:
-        for tag in span.get("tags", []):
-            if tag.get("key") == "sigma.alert":
-                has_sigma = True
-                break
-        if has_sigma:
-            break
-    return has_sigma or has_error
-
-
 def normalize_and_send(producer: KafkaProducer, out_topic: str, raw_message: Dict[str, Any]) -> int:
     """Normalize one raw OTLP message and emit normalized trace documents.
     Returns number of records emitted.
@@ -129,8 +114,7 @@ def normalize_and_send(producer: KafkaProducer, out_topic: str, raw_message: Dic
             if not spans:
                 continue
 
-            if not _has_sigma_or_error(spans):
-                continue
+            pass
 
             first_operation = spans[0].get("operationName", "")
             summary = f"{first_operation} - {len(spans)}개 이벤트" if first_operation else f"{len(spans)}개 이벤트"

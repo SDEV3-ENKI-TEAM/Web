@@ -1,3 +1,6 @@
+import os
+import json
+
 from datetime import datetime
 from typing import Optional
 
@@ -81,7 +84,7 @@ async def get_alarm_traces(request: Request, offset: int = 0, limit: int = 50, c
 				"host": tag.get("User", "-"),
 				"os": tag.get("Product", "-"),
 				"checked": False,
-				"sigma_alert": tag.get("sigma@alert", ""),
+				"sigma_alert": tag.get("sigma@alert"),
 				"span_count": trace_span_counts.get(trace_id, 0),
 				"ai_summary": "테스트 요약",
 				"user_id": user_id

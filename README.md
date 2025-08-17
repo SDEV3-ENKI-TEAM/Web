@@ -152,3 +152,18 @@ JAEGER_URL
 JWT_SECRET_KEY
 JWT_REFRESH_SECRET_KEY
 ```
+
+---
+
+### 6. sse서버, kafka 실행
+
+```bash
+cd backend/kafka
+
+# sse서버 실행
+python sse.py
+# kafka consumer 실행
+python consumer.py
+# raw_trace 정규화 실행
+python raw_trace_normalizer.py
+```
