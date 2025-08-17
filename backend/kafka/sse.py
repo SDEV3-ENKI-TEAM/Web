@@ -258,7 +258,7 @@ async def sse_alarms(limit: int = 50, token: Optional[str] = None):
             except Exception as e:
                 logger.error(f"SSE 전송 오류: {e}")
             finally:
-                sse_manager.disconnect(user_id, queue)
+                sse_manager.disconnect(username, queue)
 
         headers = {
             "Cache-Control": "no-cache",
