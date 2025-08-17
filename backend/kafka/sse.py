@@ -200,7 +200,6 @@ async def root():
 async def health_check():
     """헬스 체크 엔드포인트"""
     try:
-        # Valkey 연결 테스트
         valkey_reader.valkey_client.ping()
         return {
             "status": "healthy",
@@ -235,30 +234,26 @@ async def sse_alarms(limit: int = 50, token: Optional[str] = None):
         if not user_info:
             return {"error": "JWT 토큰이 유효하지 않습니다"}
 
-        user_id = str(user_info["user_id"])
-        username = user_info["username"]
+        username = str(user_info["username"])  # 사용자별 분리를 username 기준으로 수행
 
         recent_alarms = valkey_reader.get_recent_alarms(limit, username)
         initial_message = {
             "type": "initial_data",
             "alarms": recent_alarms or [],
             "timestamp": int(time.time() * 1000),
-            "user_id": user_info["user_id"]
+            "user_id": user_info.get("user_id")
         }
 
         async def event_generator():
-            queue = sse_manager.connect(user_id)
+            queue = sse_manager.connect(username)
             try:
-                # 초기 데이터 전송
                 yield f"data: {json.dumps(initial_message, ensure_ascii=False)}\n\n"
 
-                # 지속 이벤트 전송 루프 (하트비트 포함)
                 while True:
                     try:
                         message = await asyncio.wait_for(queue.get(), timeout=15)
                         yield f"data: {message}\n\n"
                     except asyncio.TimeoutError:
-                        # 하트비트
                         yield ":heartbeat\n\n"
             except Exception as e:
                 logger.error(f"SSE 전송 오류: {e}")
@@ -286,11 +281,24 @@ async def broadcast_events():
             if events and sse_manager.user_queues:
                 broadcast_count = 0
                 for event in reversed(events[:5]):
-                    message = json.dumps(event, ensure_ascii=False)
-                    for user_id in list(sse_manager.user_queues.keys()):
-                        await sse_manager.broadcast_to_user(message, user_id)
-                    logger.info(f"이벤트 브로드캐스트: {event.get('type', 'unknown')} - {event.get('trace_id', 'unknown')}")
-                    broadcast_count += 1
+                    try:
+                        target_username = None
+                        data = event.get("data") if isinstance(event, dict) else None
+                        if isinstance(data, dict):
+                            if isinstance(data.get("user_id"), str):
+                                target_username = data.get("user_id")
+                            elif isinstance(data.get("username"), str):
+                                target_username = data.get("username")
+                        message = json.dumps(event, ensure_ascii=False)
+                        if target_username:
+                            await sse_manager.broadcast_to_user(message, target_username)
+                        else:
+                            for uname in list(sse_manager.user_queues.keys()):
+                                await sse_manager.broadcast_to_user(message, uname)
+                        logger.info(f"이벤트 브로드캐스트: {event.get('type', 'unknown')} - {event.get('trace_id', 'unknown')} -> {target_username or 'ALL'}")
+                        broadcast_count += 1
+                    except Exception as e:
+                        logger.error(f"브로드캐스트 처리 오류: {e}")
 
                 if broadcast_count > 0:
                     for _ in range(broadcast_count):

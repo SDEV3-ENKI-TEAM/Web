@@ -116,75 +116,50 @@ class TraceConsumer:
 
             trace_id = trace_data["trace_id"]
             spans = trace_data.get("spans", [])
-
-            matched_span_count = 0
-            for span in spans:
-                tags = span.get("tags", [])
-                for tag in tags:
-                    if tag.get("key") in ("sigma.alert", "sigma@alert"):
-                        matched_span_count += 1
-                        break
-
-            existing_data = self.valkey_client.get(f"trace:{trace_id}")
+            trace_key = f"trace:{trace_id}"
+            existing_data = self.valkey_client.get(trace_key)
             is_update = False
-            baseline_only = False
 
-            if existing_data:
-                try:
-                    existing = json.loads(existing_data)
-                except Exception:
-                    existing = {}
-                if not isinstance(existing, dict):
-                    existing = {}
-                existing_matched_span_count = existing.get("matched_span_count", 0)
-
-                if matched_span_count > existing_matched_span_count:
-                    is_update = True
-                    logger.info(
-                        f"Trace 업데이트: {trace_id} (sigma 매칭 span: {existing_matched_span_count} → {matched_span_count}개)"
-                    )
-                elif matched_span_count == existing_matched_span_count:
-                    baseline_only = True
-                else:
-                    baseline_only = True
-            else:
-                logger.info(
-                    f"새로운 Trace: {trace_id} (sigma 매칭 span: {matched_span_count}개)"
-                )
-
-            alarm_card = self.create_alarm_card(trace_data, matched_span_count)
+            alarm_card = self.create_alarm_card(trace_data, 0)
             if not alarm_card or not isinstance(alarm_card, dict):
                 return True
 
-            trace_key = f"trace:{trace_id}"
-
+            prev_count = 0
+            prev_unique = 0
             if existing_data:
                 try:
-                    existing_card = json.loads(existing_data)
-                except Exception:
-                    existing_card = {}
-                if not isinstance(existing_card, dict):
-                    existing_card = {}
-                try:
-                    prev_count = int(existing_card.get("matched_span_count", 0))
+                    existing_card = json.loads(existing_data) if existing_data else {}
+                    if isinstance(existing_card, dict):
+                        prev_count = int(existing_card.get("matched_span_count", 0))
+                        prev_unique = int(existing_card.get("matched_rule_unique_count", 0))
                 except Exception:
                     prev_count = 0
-                try:
-                    curr_count = int(alarm_card.get("matched_span_count", 0))
-                except Exception:
-                    curr_count = 0
-                if curr_count < prev_count:
-                    alarm_card["matched_span_count"] = prev_count
-                try:
-                    prev_unique = int(existing_card.get("matched_rule_unique_count", 0))
-                except Exception:
                     prev_unique = 0
-                try:
-                    curr_unique = int(alarm_card.get("matched_rule_unique_count", 0))
-                except Exception:
-                    curr_unique = 0
-                if curr_unique < prev_unique:
-                    alarm_card["matched_rule_unique_count"] = prev_unique
+
+            try:
+                curr_count = int(alarm_card.get("matched_span_count", 0))
+            except Exception:
+                curr_count = 0
+            try:
+                curr_unique = int(alarm_card.get("matched_rule_unique_count", 0))
+            except Exception:
+                curr_unique = 0
+
+            # 감소 방지(보수적으로 이전값 유지)
+            if curr_count < prev_count:
+                alarm_card["matched_span_count"] = prev_count
+                curr_count = prev_count
+            if curr_unique < prev_unique:
+                alarm_card["matched_rule_unique_count"] = prev_unique
+                curr_unique = prev_unique
+
+            is_update = (curr_count > prev_count) or (curr_unique > prev_unique)
+
+            if not existing_data:
+                logger.info(
+                    f"새로운 Trace: {trace_id} (sigma 매칭 span: {curr_count}개)"
+                )
+
             self.valkey_client.set(
                 trace_key, json.dumps(alarm_card, ensure_ascii=False)
             )
@@ -274,6 +249,7 @@ class TraceConsumer:
             unique_rule_ids = set()
 
             seen_key = f"seen_span_ids:{trace_id}"
+            seen_rules_key = f"seen_rule_ids:{trace_id}"
             for span in spans:
                 tags = span.get("tags", [])
                 span_has_alert = False
@@ -284,6 +260,10 @@ class TraceConsumer:
                         if rule_id:
                             sigma_alert_ids.add((span_id, rule_id))
                             unique_rule_ids.add(rule_id)
+                            try:
+                                self.valkey_client.sadd(seen_rules_key, rule_id)
+                            except Exception:
+                                pass
                         if span_id:
                             try:
                                 added = self.valkey_client.sadd(seen_key, span_id)
@@ -304,9 +284,23 @@ class TraceConsumer:
                 self.valkey_client.expire(seen_key, 86400)
             except Exception:
                 pass
+            try:
+                self.valkey_client.expire(seen_rules_key, 86400)
+            except Exception:
+                pass
 
             if not sigma_alert_ids:
                 return {}
+
+            # 최종 누적치로 재계산
+            try:
+                total_matched_spans = int(self.valkey_client.scard(seen_key))
+            except Exception:
+                total_matched_spans = matched_span_count
+            try:
+                total_unique_rules = int(self.valkey_client.scard(seen_rules_key))
+            except Exception:
+                total_unique_rules = len(unique_rule_ids)
 
             severity_scores = []
             matched_rules = []
@@ -416,8 +410,8 @@ class TraceConsumer:
                 "os": os_type or "windows",
                 "checked": False,
                 "sigma_alert": sigma_alert or "",
-                "matched_span_count": matched_span_count,
-                "matched_rule_unique_count": len(unique_rule_ids),
+                "matched_span_count": total_matched_spans,
+                "matched_rule_unique_count": total_unique_rules,
                 "ai_summary": ai_summary or "테스트 요약",
                 "severity": severity or "low",
                 "severity_score": avg_severity_score or 30,

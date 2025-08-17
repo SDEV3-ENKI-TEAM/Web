@@ -15,7 +15,6 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from auth.auth_api import router as auth_router
-from auth.auth_deps import get_current_user_with_roles
 from utils.opensearch_analyzer import OpenSearchAnalyzer
 from api.traces import router as traces_router
 from api.alarms import router as alarms_router
