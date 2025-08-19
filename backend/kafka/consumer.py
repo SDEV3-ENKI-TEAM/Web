@@ -129,15 +129,21 @@ class TraceConsumer:
 
             prev_count = 0
             prev_unique = 0
+            prev_severity_score = None
+            prev_sigma_rule_title = None
             if existing_data:
                 try:
                     existing_card = json.loads(existing_data) if existing_data else {}
                     if isinstance(existing_card, dict):
                         prev_count = int(existing_card.get("matched_span_count", 0))
                         prev_unique = int(existing_card.get("matched_rule_unique_count", 0))
+                        prev_severity_score = existing_card.get("severity_score")
+                        prev_sigma_rule_title = existing_card.get("sigma_rule_title")
                 except Exception:
                     prev_count = 0
                     prev_unique = 0
+                    prev_severity_score = None
+                    prev_sigma_rule_title = None
 
             try:
                 curr_count = int(alarm_card.get("matched_span_count", 0))
@@ -147,8 +153,9 @@ class TraceConsumer:
                 curr_unique = int(alarm_card.get("matched_rule_unique_count", 0))
             except Exception:
                 curr_unique = 0
+            curr_severity_score = alarm_card.get("severity_score")
+            curr_sigma_rule_title = alarm_card.get("sigma_rule_title")
 
-            # 감소 방지(보수적으로 이전값 유지)
             if curr_count < prev_count:
                 alarm_card["matched_span_count"] = prev_count
                 curr_count = prev_count
@@ -157,8 +164,18 @@ class TraceConsumer:
                 curr_unique = prev_unique
 
             is_update = (curr_count > prev_count) or (curr_unique > prev_unique)
+            if not is_new_card and not is_update:
+                if prev_severity_score is not None and curr_severity_score is not None:
+                    try:
+                        if float(curr_severity_score) != float(prev_severity_score):
+                            is_update = True
+                    except Exception:
+                        if str(curr_severity_score) != str(prev_severity_score):
+                            is_update = True
+                if not is_update:
+                    if (prev_sigma_rule_title or "") != (curr_sigma_rule_title or ""):
+                        is_update = True
 
-            # AI 보류분(pending_ai) 병합
             try:
                 pending_key = f"pending_ai:{trace_id}"
                 pending_raw = self.valkey_client.get(pending_key)
@@ -361,6 +378,8 @@ class TraceConsumer:
                                     "level": level,
                                     "severity_score": severity_score,
                                     "title": title,
+                                    "count": 1,
+                                    "last_ts": int(time.time() * 1000),
                                 }
                             )
                             logger.info(
@@ -374,6 +393,8 @@ class TraceConsumer:
                                     "level": "high",
                                     "severity_score": 90,
                                     "title": sigma_id,
+                                    "count": 1,
+                                    "last_ts": int(time.time() * 1000),
                                 }
                             )
                             logger.warning(
@@ -388,13 +409,43 @@ class TraceConsumer:
                                 "level": "high",
                                 "severity_score": 90,
                                 "title": sigma_id,
+                                "count": 1,
+                                "last_ts": int(time.time() * 1000),
                             }
                         )
 
-                if severity_scores:
-                    avg_severity_score = sum(severity_scores) / len(severity_scores)
+                if matched_rules:
+                    if severity_scores:
+                        avg_severity_score = sum(severity_scores) / len(severity_scores)
+                    else:
+                        avg_severity_score = 30
+                    try:
+                        top_score = max(r.get("severity_score", 0) for r in matched_rules)
+                    except Exception:
+                        top_score = 30
+                    top_candidates = [r for r in matched_rules if r.get("severity_score", 0) == top_score]
+                    def level_weight(lv: str) -> int:
+                        lv = (lv or "").lower()
+                        if lv == "critical":
+                            return 4
+                        if lv == "high":
+                            return 3
+                        if lv == "medium":
+                            return 2
+                        if lv == "low":
+                            return 1
+                        return 0
+                    top_candidates.sort(key=lambda r: (
+                        -r.get("count", 0),
+                        -r.get("last_ts", 0),
+                        -level_weight(r.get("level", "")),
+                        str(r.get("sigma_id", "")),
+                    ))
+                    top_rule = top_candidates[0]
+                    sigma_rule_title = top_rule.get("title", "")
                 else:
                     avg_severity_score = 30
+                    sigma_rule_title = ""
             else:
                 if any(span.get("tag", {}).get("error", False) for span in spans):
                     avg_severity_score = 60
@@ -403,6 +454,7 @@ class TraceConsumer:
                     avg_severity_score = 30
                     severity = "low"
                 matched_rules = []
+                sigma_rule_title = ""
 
             if avg_severity_score >= 90:
                 severity = "critical"
@@ -417,9 +469,7 @@ class TraceConsumer:
 
             ai_summary = "AI 추론중..."
 
-            sigma_rule_title = ""
-            if matched_rules:
-                sigma_rule_title = matched_rules[0].get("title", "")
+            
 
             detected_at_ms = trace_data.get("detected_at")
             try:

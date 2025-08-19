@@ -253,9 +253,7 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
                       ...alarm,
                       ...data.data,
                       detected_at: alarm.detected_at,
-                      isUpdated: true,
                     } as Alarm;
-                    setHighlight(data.trace_id, 3000);
                     return updatedAlarm;
                   }
                   return alarm;

@@ -137,42 +137,8 @@ export default function SettingsPage() {
           </div>
         </motion.div>
 
-        <AnimatePresence>
-          {showGuide && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="bg-slate-800/70 backdrop-blur-md border border-slate-700/50 rounded-lg p-6"
-            >
-              <div className="text-slate-300 text-sm leading-6">
-                시스템 설정은 사용자 환경에 맞게 조절할 수 있습니다. 알림, 보안,
-                연동을 설정하세요.
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
-          <div className="lg:col-span-1 space-y-4">
-            <div className="bg-slate-900/70 backdrop-blur-md border border-slate-700/50 rounded-lg p-4">
-              <div className="text-slate-300 text-sm">
-                총{" "}
-                {settingsCategories.reduce(
-                  (total, cat) => total + cat.settings.length,
-                  0
-                )}
-                개 항목
-              </div>
-            </div>
-            <div className="bg-slate-900/70 backdrop-blur-md border border-slate-700/50 rounded-lg p-4">
-              <div className="text-slate-300 text-sm">
-                변경 사항은 저장 버튼을 눌러 적용할 수 있습니다.
-              </div>
-            </div>
-          </div>
-
-          <div className="lg:col-span-3 space-y-6">
+          <div className="space-y-6 col-span-4">
             {settingsCategories.map((category, index) => (
               <motion.div
                 key={category.id}
