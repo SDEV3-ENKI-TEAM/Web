@@ -4,12 +4,12 @@ import React, { useState, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { useWebSocket } from "@/contexts/WebSocketContext";
+import { useSSE } from "@/contexts/SSEContext";
 import { useAuth } from "@/context/AuthContext";
 
 interface Alarm {
   trace_id: string;
-  detected_at: number;
+  detected_at: number | string;
   summary: string;
   host: string;
   os: string;
@@ -20,22 +20,28 @@ interface Alarm {
   severity?: string;
   severity_score?: number;
   sigma_rule_title?: string;
-  isUpdated?: boolean; // 업데이트 플래그 추가
+  isUpdated?: boolean;
 }
 
 function timeAgo(dateNum: number) {
   if (!dateNum) return "-";
-  const now = new Date();
-  const date = new Date(dateNum);
-  const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+  const now = Date.now();
+  const diff = Math.floor((now - dateNum) / 1000);
+
   if (diff < 60) return `${diff}초 전`;
   if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
+
   return `${Math.floor(diff / 86400)}일 전`;
 }
 
 export default function AlarmsPage() {
-  const { alarms, wsConnected, wsError, updateAlarm } = useWebSocket();
+  const {
+    alarms,
+    sseConnected: wsConnected,
+    sseError: wsError,
+    updateAlarm,
+  } = useSSE();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState<
@@ -183,7 +189,7 @@ export default function AlarmsPage() {
                   `(필터링됨: ${filteredAlarms.length}개)`}
               </div>
 
-              {/* WebSocket 연결 상태 표시 */}
+              {/* SSE 연결 상태 표시 */}
               <div className="flex items-center gap-2">
                 <div
                   className={`w-2 h-2 rounded-full ${
@@ -301,7 +307,7 @@ export default function AlarmsPage() {
                           </div>
                         </div>
                         <span className="text-xs text-slate-400 font-mono">
-                          {timeAgo(alarm.detected_at)}
+                          {timeAgo(Number(alarm.detected_at))}
                         </span>
                       </div>
 
@@ -358,8 +364,13 @@ export default function AlarmsPage() {
                           </div>
                         </div>
                       </div>
-                      <div className="text-xs text-slate-400">
-                        {alarm.ai_summary || "AI 요약 없음"}
+                      <div className="mt-2">
+                        <div className="text-xs text-slate-400 mb-1">
+                          AI 요약
+                        </div>
+                        <div className="w-full text-sm text-slate-200 bg-slate-800/50 border border-slate-700/50 rounded px-3 py-2 whitespace-pre-wrap leading-6 max-h-48 overflow-auto">
+                          {alarm.ai_summary || "AI 추론중..."}
+                        </div>
                       </div>
                     </motion.div>
                   ))}
@@ -375,7 +386,7 @@ export default function AlarmsPage() {
                 <h3 className="text-lg font-semibold text-slate-200">필터</h3>
                 <button
                   onClick={resetFilters}
-                  className="flex items-center gap-2 px-3 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:bg-slate-700 transition-colors text-sm"
+                  className="flex items-center gap-2 px-3 py-1 bg-slate-800 border-slate-700 rounded text-slate-300 hover:bg-slate-700 transition-colors text-sm"
                 >
                   <svg
                     className="w-4 h-4"

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useWebSocket } from "@/contexts/WebSocketContext";
+import { useSSE } from "@/contexts/SSEContext";
 import { useRouter } from "next/navigation";
 
 interface Alarm {
@@ -19,13 +19,13 @@ interface Alarm {
   severity_score?: number;
   sigma_rule_title?: string;
   isUpdated?: boolean;
+  toast_id?: string;
 }
 
 function timeAgo(dateNum: number) {
   if (!dateNum) return "-";
-  const now = new Date();
-  const date = new Date(dateNum);
-  const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+  const now = Date.now();
+  const diff = Math.floor((now - dateNum) / 1000);
   if (diff < 60) return `${diff}초 전`;
   if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
@@ -33,37 +33,84 @@ function timeAgo(dateNum: number) {
 }
 
 export default function GlobalNotification() {
-  const { dequeueNotification, dismissNotification } = useWebSocket();
+  const { dequeueNotification, dismissNotification, notifications } = useSSE();
   const [visibleNotifications, setVisibleNotifications] = useState<Alarm[]>([]);
   const router = useRouter();
 
+  const MAX_VISIBLE = 3;
+  const isConsumingRef = React.useRef(false);
+  const timersRef = React.useRef<Record<string, any>>({});
+
   useEffect(() => {
-    const next = dequeueNotification();
-    if (next) {
-      setVisibleNotifications((prev) => [next, ...prev.slice(0, 2)]);
+    if (notifications.length === 0) return;
+    if (isConsumingRef.current) return;
+    isConsumingRef.current = true;
+
+    const pulled: Alarm[] = [];
+    while (pulled.length < MAX_VISIBLE) {
+      const next = dequeueNotification();
+      if (!next) break;
+      pulled.push({ ...next, detected_at: Number(next.detected_at) } as Alarm);
+    }
+
+    if (pulled.length === 0) {
+      isConsumingRef.current = false;
+      return;
+    }
+
+    setVisibleNotifications((prev) => {
+      let nextVisible = [...prev];
+      for (const item of pulled) {
+        const key = item.toast_id || item.trace_id;
+        if (nextVisible.some((n) => (n.toast_id || n.trace_id) === key))
+          continue;
+        nextVisible = [
+          { ...item, detected_at: Number(item.detected_at) },
+          ...nextVisible,
+        ].slice(0, MAX_VISIBLE);
+      }
+      return nextVisible;
+    });
+
+    for (const item of pulled) {
+      const key = item.toast_id || item.trace_id;
+      if (timersRef.current[key]) continue;
       const t = setTimeout(() => {
         setVisibleNotifications((prev) =>
-          prev.filter((n) => n.trace_id !== next.trace_id)
+          prev.filter((n) => (n.toast_id || n.trace_id) !== key)
         );
-        dismissNotification(next.trace_id);
+        dismissNotification(item.trace_id);
+        delete timersRef.current[key];
       }, 5000);
-      return () => clearTimeout(t);
+      timersRef.current[key] = t;
     }
-  }, [dequeueNotification]);
+
+    isConsumingRef.current = false;
+  }, [notifications.length]);
 
   const handleNotificationClick = (alarm: Alarm) => {
     router.push(`/alarms/${alarm.trace_id}`);
+    const key = alarm.toast_id || alarm.trace_id;
     setVisibleNotifications((prev) =>
-      prev.filter((n) => n.trace_id !== alarm.trace_id)
+      prev.filter((n) => (n.toast_id || n.trace_id) !== key)
     );
+    if (timersRef.current[key]) {
+      clearTimeout(timersRef.current[key]);
+      delete timersRef.current[key];
+    }
     dismissNotification(alarm.trace_id);
   };
 
-  const handleClose = (traceId: string) => {
+  const handleClose = (alarm: Alarm) => {
+    const key = alarm.toast_id || alarm.trace_id;
     setVisibleNotifications((prev) =>
-      prev.filter((n) => n.trace_id !== traceId)
+      prev.filter((n) => (n.toast_id || n.trace_id) !== key)
     );
-    dismissNotification(traceId);
+    if (timersRef.current[key]) {
+      clearTimeout(timersRef.current[key]);
+      delete timersRef.current[key];
+    }
+    dismissNotification(alarm.trace_id);
   };
 
   if (visibleNotifications.length === 0) {
@@ -75,7 +122,7 @@ export default function GlobalNotification() {
       <AnimatePresence>
         {visibleNotifications.map((notification) => (
           <motion.div
-            key={notification.trace_id}
+            key={notification.toast_id || notification.trace_id}
             initial={{ opacity: 0, x: 300, scale: 0.8 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: 300, scale: 0.8 }}
@@ -116,31 +163,28 @@ export default function GlobalNotification() {
                 </div>
 
                 <div className="flex items-center gap-4 text-xs text-slate-400">
-                  <span>호스트: {notification.host}</span>
-                  <span>룰 매칭: {notification.matched_span_count || 0}개</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500">호스트</span>
+                    <span className="text-slate-300 font-mono">
+                      {notification.host || "unknown"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-500">위험도</span>
+                    <span className="text-slate-300 font-mono">
+                      {notification.severity || "low"}
+                    </span>
+                  </div>
                 </div>
               </div>
-
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleClose(notification.trace_id);
+                  handleClose(notification);
                 }}
-                className="text-slate-400 hover:text-white transition-colors ml-2"
+                className="text-slate-400 hover:text-slate-200"
               >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
+                ✕
               </button>
             </div>
           </motion.div>

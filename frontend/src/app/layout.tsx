@@ -3,7 +3,7 @@ import "./theme.css";
 import type { Metadata } from "next";
 import { AuthProvider } from "@/context/AuthContext";
 import { DashboardProvider } from "@/context/DashboardContext";
-import { WebSocketProvider } from "@/contexts/WebSocketContext";
+import { SSEProvider } from "@/contexts/SSEContext";
 import ToastNotification from "@/components/ToastNotification";
 
 export const metadata: Metadata = {
@@ -21,9 +21,9 @@ export default function RootLayout({
       <body className="h-full bg-app-background text-app-text">
         <AuthProvider>
           <DashboardProvider>
-            <WebSocketProvider>
+            <SSEProvider>
               <ToastNotification>{children}</ToastNotification>
-            </WebSocketProvider>
+            </SSEProvider>
           </DashboardProvider>
         </AuthProvider>
       </body>

@@ -10,25 +10,26 @@ OPENSEARCH_HOST=search-eventagentservice ~~~ .ap-northeast-2.es.amazonaws.com
 
 
 ### 흐름
-1. AWS Opensearch에서 trace 가져옴
+1. kafka topic 1에서 trace 가져옴
 2. 데이터 전처리, 요약해서 자연어로 변환
 3. 벡터 db에서 임계값 0.7로 유사도 검색 
    * 유사 로그가 있는 경우: 유사 로그의 메타데이터를 참고하여 판단
    * 유사 로그가 없는 경우: LLM 판단
 4. decision이 suspicious가 나온 경우 재판단 요청
-5. 결과 chroma db에 저장
+5. 결과 kakfa producer(토픽 2: ai-result-topic) 로 전송
 <br>
 
 
 ### 이상 탐지 실행
-1. anomaly_detect.py 파일 실행
+1. Detector/detect.py 파일 실행
 2. 터미널 출력 결과 예시
-<img width="1110" height="729" alt="스크린샷 2025-08-05 오후 3 06 14" src="https://github.com/user-attachments/assets/508c9c56-8082-4226-a6d0-a11ebb9a1d42" />
+![kafka-ai](https://github.com/user-attachments/assets/51ae3ada-5ca8-493f-bf6b-8187f686a7d4)
 
 <br>
 <br>
 
-
+### kafka 테스트
+1. kafka/consumer.py 실행하면 터미널에서 실시간 전송되는 이상 탐지 결고 확인 가능
 
 
 ### chomadb API

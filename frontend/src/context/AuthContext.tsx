@@ -152,12 +152,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsLoggedIn(true);
       localStorage.setItem("user", response.username);
       localStorage.setItem("token", response.token);
-      localStorage.setItem("refreshToken", response.refresh_token); // localStorage에도 저장
+      localStorage.setItem("refreshToken", response.refresh_token);
       sessionStorage.setItem("refreshToken", response.refresh_token);
 
       document.cookie = `access_token=${response.token}; path=/; max-age=${
         60 * 60
       }; SameSite=Strict`;
+
+      try {
+        window.dispatchEvent(new Event("auth:login"));
+      } catch {}
     } catch (error) {
       setCurrentUser(null);
       setTokenAndUpdateAxios(null);
@@ -185,6 +189,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     document.cookie =
       "access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+
+    try {
+      window.dispatchEvent(new Event("auth:logout"));
+    } catch {}
   };
 
   return (

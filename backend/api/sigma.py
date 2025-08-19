@@ -11,7 +11,6 @@ async def get_sigma_rule(sigma_id: str, request: Request):
 		doc = collection.find_one({"sigma_id": sigma_id})
 		if not doc:
 			raise HTTPException(status_code=404, detail="Sigma rule not found")
-		# Convert ObjectId and non-serializable fields if needed
 		doc.pop("_id", None)
 		return doc
 	except HTTPException:

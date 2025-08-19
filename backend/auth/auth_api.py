@@ -45,17 +45,15 @@ def store_refresh_token(db: Session, user_id: int, refresh_token: str, request: 
     """Refresh Token을 refresh_tokens 테이블에 저장"""
     hashed_token = hash_token(refresh_token)
     
-    # 기존 유효한 refresh 토큰들을 무효화
     db.query(RefreshToken).filter(
         RefreshToken.user_id == user_id,
         RefreshToken.is_revoked == False
     ).update({"is_revoked": True})
     
-    # 새로운 refresh 토큰 저장
     new_refresh_token = RefreshToken(
         user_id=user_id,
         token_hash=hashed_token,
-        expires_at=datetime.utcnow() + timedelta(hours=12),  # 12시간
+        expires_at=datetime.utcnow() + timedelta(hours=12),
         is_revoked=False,
         created_at=datetime.utcnow(),
         last_used_at=datetime.utcnow(),
@@ -214,7 +212,6 @@ async def logout(
         user_info = _verify_user_token(credentials)
         user = _get_user_from_token(db, user_info)
         
-        # 해당 사용자의 모든 유효한 refresh 토큰 무효화
         db.query(RefreshToken).filter(
             RefreshToken.user_id == user.id,
             RefreshToken.is_revoked == False

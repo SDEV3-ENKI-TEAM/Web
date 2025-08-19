@@ -159,3 +159,49 @@ python consumer.py
 # raw_trace 정규화 실행
 python raw_trace_normalizer.py
 ```
+
+---
+
+### 7. detector.py, chromaDB, llm consumer 실행
+
+```bash
+cd LLMDetectio-main
+
+# chroma DB 실행
+cd Detector
+chroma run --host 127.0.0.1 --port 8000
+# chroma server 실행
+uvicorn chroma_api:app --reload --port 9000
+# detector.py 실행
+python detector.py
+# kafka consumer 실행
+cd Kafka
+python consumer.py
+```
+
+---
+
+### 8. EventAgent 실행
+
+```bash
+cd EventAgent_main
+
+# 1) SysmonAgent 관리자 권한으로 실행
+./SysmonAgent.exe
+
+# 2) sigma_matcher
+./sigma_matcher.exe
+
+# 3) OTEL Collector
+압축 해제
+otelcol-contrib --config otel-collector-config.yaml
+
+# 4) Docker 기반 서비스 실행 (Kafka, Jaeger, OpenSearch)
+docker compose pull
+docker‑compose up -d
+
+# 5) Kafka 토픽 생성
+docker exec -it kafka kafka-topics --create --topic raw_trace --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+# Kafka 실시간 데이터 확인
+docker exec -it kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic raw_trace
+```
