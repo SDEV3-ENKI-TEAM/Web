@@ -14,7 +14,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from auth.auth_api import router as auth_router
+from api.auth import router as auth_router
 from utils.opensearch_analyzer import OpenSearchAnalyzer
 from api.traces import router as traces_router
 from api.alarms import router as alarms_router
@@ -67,6 +67,15 @@ async def lifespan(app: FastAPI):
         app.state.mongo_client = mongo_client
         app.state.mongo_collection = mongo_collection
         app.state.opensearch = OpenSearchAnalyzer()
+        try:
+            try:
+                from database.database import Base, engine
+            except Exception:
+                from database.database import Base, engine
+            Base.metadata.create_all(bind=engine)
+            logger.info("MySQL tables ensured via Base.metadata.create_all().")
+        except Exception as e:
+            logger.warning(f"MySQL table ensure failed or skipped: {e}")
         yield
     finally:
         try:

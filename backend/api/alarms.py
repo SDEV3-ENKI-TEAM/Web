@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from auth.auth_deps import get_current_user_with_roles
+from utils.auth_deps import get_current_user_with_roles
 
 router = APIRouter(prefix="/alarms", tags=["alarms"], dependencies=[Depends(get_current_user_with_roles)])
 

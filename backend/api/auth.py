@@ -16,7 +16,6 @@ from database.database import RefreshToken, User, UserRole, get_db
 from utils.jwt_utils import (
     create_access_token,
     create_refresh_token,
-    invalidate_token,
     verify_password,
     get_password_hash,
     verify_token,

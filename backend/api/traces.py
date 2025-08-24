@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from auth.auth_deps import get_current_user_with_roles
+from utils.auth_deps import get_current_user_with_roles
 
 router = APIRouter(prefix="/traces", tags=["traces"])
 

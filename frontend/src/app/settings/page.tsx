@@ -43,13 +43,6 @@ const settingsCategories: SettingsCategory[] = [
     icon: "•",
     settings: [
       {
-        name: "팝업 알림",
-        description: "위험한 상황이 발생했을 때 알림을 받습니다",
-        type: "toggle",
-        value: true,
-        key: "danger_alerts",
-      },
-      {
         name: "Slack 알림 연동",
         description: "Slack으로 보안 알림을 전송합니다",
         type: "toggle",
