@@ -1,29 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { proxyWithAutoRefresh } from "../../_utils/authProxy";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: { trace_id: string } }
 ) {
   const { trace_id } = params;
-  try {
-    // Authorization 헤더 추출
-    const authHeader = req.headers.get("authorization");
-
-    const backendRes = await fetch(
-      `http://localhost:8003/api/traces/search/${trace_id}`,
-      {
-        headers: {
-          Authorization: authHeader || "",
-          "Content-Type": "application/json",
-        },
-      }
-    );
-    const data = await backendRes.json();
-    return NextResponse.json(data, { status: backendRes.status });
-  } catch (e: any) {
-    return NextResponse.json(
-      { found: false, data: null, message: e?.message || "Internal Error" },
-      { status: 500 }
-    );
-  }
+  const backendUrl = `http://localhost:8003/api/traces/search/${trace_id}`;
+  return proxyWithAutoRefresh(req, backendUrl, {
+    headers: { "Content-Type": "application/json" },
+  });
 }

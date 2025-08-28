@@ -158,16 +158,11 @@ function AlarmDetailContent() {
 
   const fetchSigmaTitle = async (sigmaId: string) => {
     try {
-      const storedToken = localStorage.getItem("token");
-      const response = await fetch(
-        `http://localhost:8003/api/sigma-rule/${sigmaId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${storedToken}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      const response = await fetch(`/api/sigma-rule/${sigmaId}`, {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -266,17 +261,11 @@ function AlarmDetailContent() {
     const fetchTrace = async () => {
       setIsLoading(true);
       try {
-        const storedToken = localStorage.getItem("token");
-
-        const response = await fetch(
-          `http://localhost:8003/api/traces/search/${trace_id}`,
-          {
-            headers: {
-              Authorization: `Bearer ${storedToken}`,
-              "Content-Type": "application/json",
-            },
-          }
-        );
+        const response = await fetch(`/api/alarms/${trace_id}`, {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
 
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);

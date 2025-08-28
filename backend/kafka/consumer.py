@@ -239,6 +239,12 @@ class TraceConsumer:
                 }
                 self.valkey_client.lpush(event_key, json.dumps(event_data, ensure_ascii=False))
                 self.valkey_client.ltrim(event_key, 0, 999)
+                try:
+                    from .slack_notify import send_slack_alert
+                    severity = str(alarm_card.get("severity", "unknown"))
+                    _ = send_slack_alert(severity, trace_id=trace_id, summary=alarm_card.get("summary"), host=alarm_card.get("host"))
+                except Exception as e:
+                    logger.warning(f"Slack notify failed: {e}")
             elif is_update:
                 event_data = {
                     "type": "trace_update",
