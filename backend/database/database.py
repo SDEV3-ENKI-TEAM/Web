@@ -7,7 +7,6 @@ from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, create_
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 
-# Load .env robustly from backend root
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 try:
 	load_dotenv(ENV_PATH, encoding="utf-8-sig")
@@ -80,4 +79,12 @@ class RefreshToken(Base):
 	created_at = Column(DateTime(timezone=True), server_default=func.now())
 	last_used_at = Column(DateTime(timezone=True), server_default=func.now())
 	ip_address = Column(String(45))
-	user_agent = Column(Text) 
+	user_agent = Column(Text)
+
+class SlackSettings(Base):
+	__tablename__ = "slack_settings"
+	id = Column(Integer, primary_key=True, index=True)
+	webhook_url_enc = Column(Text, nullable=False)
+	channel = Column(String(100), nullable=True)
+	enabled = Column(Boolean, default=False, nullable=False)
+	updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now()) 

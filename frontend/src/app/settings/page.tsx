@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
@@ -94,9 +94,50 @@ export default function SettingsPage() {
     setHasChanges(true);
   };
 
-  const handleSaveSettings = () => {
-    console.log("Settings saved:", settings);
-    setHasChanges(false);
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const resp = await fetch("/api/settings/slack");
+        if (!resp.ok) return;
+        const data = await resp.json();
+        setSettings((prev) => ({
+          ...prev,
+          ["notifications_slack_enabled"]: !!data.enabled,
+          ["notifications_slack_channel"]: data.channel || "",
+          ["notifications_slack_webhook_url"]: "",
+        }));
+      } catch {}
+    };
+    load();
+  }, []);
+
+  const handleSaveSettings = async () => {
+    try {
+      const enabled = !!(settings["notifications_slack_enabled"] ?? false);
+      const channel = settings["notifications_slack_channel"] ?? "";
+      const webhook = settings["notifications_slack_webhook_url"] ?? "";
+      if (!webhook) {
+        alert("Slack 웹훅 URL을 입력하세요");
+        return;
+      }
+      const resp = await fetch("/api/settings/slack", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          webhook_url: webhook,
+          channel: channel || null,
+          enabled,
+        }),
+      });
+      if (!resp.ok) {
+        const t = await resp.text();
+        alert(`저장 실패: ${resp.status} ${t}`);
+        return;
+      }
+      setHasChanges(false);
+    } catch (e: any) {
+      alert("저장 중 오류가 발생했습니다");
+    }
   };
 
   const handleResetSettings = () => {
