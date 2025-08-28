@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
+from starlette.requests import Request
 
 try:
     env_path = Path(__file__).parent.parent / '.env'
@@ -225,16 +226,19 @@ async def get_recent_alarms(limit: int = 10, username: Optional[str] = None):
 
 
 @app.get("/sse/alarms")
-async def sse_alarms(limit: int = 50, token: Optional[str] = None):
-    """실시간 알람 SSE 엔드포인트 (JWT 인증 필요)"""
+async def sse_alarms(request: Request, limit: int = 50, token: Optional[str] = None):
     try:
-        if not token:
-            return {"error": "JWT 토큰이 필요합니다"}
-        user_info = verify_jwt_token(token)
+        auth_header = request.headers.get("authorization") if request else None
+        user_info = None
+        if auth_header and auth_header.lower().startswith("bearer "):
+            bearer_token = auth_header.split(" ", 1)[1].strip()
+            user_info = verify_jwt_token(bearer_token)
+        if not user_info and token:
+            user_info = verify_jwt_token(token)
         if not user_info:
             return {"error": "JWT 토큰이 유효하지 않습니다"}
 
-        username = str(user_info["username"])  # 사용자별 분리를 username 기준으로 수행
+        username = str(user_info["username"])  
 
         recent_alarms = valkey_reader.get_recent_alarms(limit, username)
         initial_message = {

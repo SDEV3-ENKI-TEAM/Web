@@ -6,7 +6,7 @@ import {
   SignupRequest,
 } from "@/types/auth";
 
-const API_BASE_URL = "http://localhost:8003/api/auth";
+const API_BASE_URL = "/api/auth";
 
 export async function login(credentials: LoginRequest): Promise<JwtResponse> {
   try {
@@ -22,7 +22,6 @@ export async function login(credentials: LoginRequest): Promise<JwtResponse> {
       token: token,
     };
   } catch (error: any) {
-    console.error("Login Error:", error.response?.data || error.message);
     throw new Error(error.response?.data?.message || "로그인 실패");
   }
 }
@@ -34,7 +33,6 @@ export async function register(
     const response = await axiosInstance.post("/auth/signup", userData);
     return response.data;
   } catch (error: any) {
-    console.error("Signup Error:", error.response?.data || error.message);
     throw new Error(error.response?.data?.message || "회원가입 실패");
   }
 }

@@ -9,6 +9,7 @@ import React, {
   useRef,
 } from "react";
 import { refreshAccessToken } from "@/lib/axios";
+import { useAuth } from "@/context/AuthContext";
 
 interface Alarm {
   trace_id: string;
@@ -64,6 +65,7 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
   const [sse, setSse] = useState<EventSource | null>(null);
   const [sseConnected, setSseConnected] = useState(false);
   const [sseError, setSseError] = useState<string | null>(null);
+  const { isLoggedIn } = useAuth();
 
   const highlightTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
@@ -90,6 +92,7 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
   const recentMapRef = useRef<Map<string, number>>(new Map());
   const dismissedRef = useRef<Record<string, number>>({});
   const manualStopRef = useRef(false);
+  const backoffAttemptRef = useRef(0);
 
   const disconnectSSE = () => {
     manualStopRef.current = true;
@@ -147,39 +150,33 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
   useEffect(() => {
     let esInstance: EventSource | null = null;
 
+    const scheduleReconnect = () => {
+      if (manualStopRef.current || isUnmountedRef.current || !isLoggedIn)
+        return;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      const base = 1000;
+      const max = 30000;
+      const attempt = backoffAttemptRef.current || 0;
+      const exp = Math.min(max, base * Math.pow(2, attempt));
+      const jitter = Math.floor(exp * 0.1);
+      const delay =
+        exp + Math.floor(Math.random() * jitter) - Math.floor(jitter / 2);
+      backoffAttemptRef.current = attempt + 1;
+      reconnectTimeoutRef.current = setTimeout(() => {
+        connectSSE();
+      }, delay);
+    };
+
     const connectSSE = async () => {
+      if (!isLoggedIn) return;
+      if (sse) return;
       try {
         manualStopRef.current = false;
-        let token = localStorage.getItem("token");
-        if (!token) {
-          try {
-            token = await refreshAccessToken();
-            if (token) localStorage.setItem("token", token);
-          } catch (error) {
-            setSseError("로그인이 필요합니다");
-            scheduleReconnect();
-            return;
-          }
-        }
-
-        if (!token) {
-          scheduleReconnect();
-          return;
-        }
-
-        const origin =
-          typeof window !== "undefined"
-            ? window.location.origin
-            : "http://localhost:8004";
-        const base = origin.replace(/\/$/, "");
-        const url = base.includes(":8004") ? base : "http://localhost:8004";
-        const sseUrl = `${url}/sse/alarms?token=${encodeURIComponent(
-          token
-        )}&limit=100`;
-
         try {
-          esInstance = new EventSource(sseUrl);
-        } catch (e) {
+          esInstance = new EventSource(`/api/sse/alarms?limit=100`);
+        } catch {
           setSseError("SSE 연결 생성 실패");
           scheduleReconnect();
           return;
@@ -188,6 +185,7 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
         esInstance.onopen = () => {
           setSseConnected(true);
           setSseError(null);
+          backoffAttemptRef.current = 0;
         };
 
         esInstance.onmessage = (event) => {
@@ -198,18 +196,12 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
               setAlarms(initialAlarms);
             } else if (data.type === "new_trace") {
               const newAlarm: Alarm = data.data;
-              console.log("push", newAlarm.trace_id);
               const key = newAlarm.trace_id;
               pruneRecent();
               const now = Date.now();
               const recentExpire = recentMapRef.current.get(key) || 0;
               const dismissedExpire = dismissedRef.current[key] || 0;
               if (recentExpire > now || dismissedExpire > now) {
-                console.log("skip recent", newAlarm.trace_id, {
-                  recentExpire,
-                  now,
-                  dismissedExpire,
-                });
                 return;
               }
               recentMapRef.current.set(key, now + 10000);
@@ -241,7 +233,6 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
                 notificationsRef.current = next;
                 return next;
               });
-              console.log("queued", newAlarm.trace_id);
             } else if (data.type === "trace_update") {
               if (!data.trace_id || !data.data) {
                 return;
@@ -276,9 +267,7 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
                 return prevAlarms;
               });
             }
-          } catch (e) {
-            console.error("sse onmessage error", e);
-          }
+          } catch {}
         };
 
         esInstance.onerror = () => {
@@ -287,48 +276,25 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
           try {
             esInstance?.close();
           } catch {}
-          if (!isUnmountedRef.current && !manualStopRef.current)
+          if (!isUnmountedRef.current && !manualStopRef.current && isLoggedIn) {
             scheduleReconnect();
+          }
         };
 
         setSse(esInstance);
-      } catch (error) {
+      } catch {
         setSseError("연결 실패");
         scheduleReconnect();
       }
     };
 
-    const scheduleReconnect = () => {
-      if (manualStopRef.current || isUnmountedRef.current) return;
-      if (reconnectTimeoutRef.current)
-        clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = setTimeout(() => {
-        connectSSE();
-      }, 2000);
-    };
-
-    const onLogout = () => {
-      try {
-        esInstance?.close();
-      } catch {}
+    if (isLoggedIn) {
+      connectSSE();
+    } else {
       disconnectSSE();
-    };
-
-    const onLogin = () => {
-      manualStopRef.current = false;
-      if (!sse && !reconnectTimeoutRef.current) {
-        connectSSE();
-      }
-    };
-
-    window.addEventListener("auth:logout", onLogout);
-    window.addEventListener("auth:login", onLogin);
-
-    connectSSE();
+    }
 
     return () => {
-      window.removeEventListener("auth:logout", onLogout);
-      window.removeEventListener("auth:login", onLogin);
       isUnmountedRef.current = true;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
@@ -340,7 +306,7 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
         } catch {}
       }
     };
-  }, []);
+  }, [isLoggedIn]);
 
   const addNotification = (alarm: Alarm) => {
     setNotifications((prev) => {

@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
 
-export async function POST(request: NextRequest) {
+export async function POST(_request: NextRequest) {
   try {
-    const body = await request.json();
-    const { refresh_token } = body;
+    const cookieStore = await cookies();
+    const refreshToken = cookieStore.get("refresh_token")?.value;
 
-    if (!refresh_token) {
+    if (!refreshToken) {
       return NextResponse.json(
-        { error: "Refresh token이 필요합니다." },
-        { status: 400 }
+        { error: "Refresh token cookie not found" },
+        { status: 401 }
       );
     }
 
@@ -18,19 +19,41 @@ export async function POST(request: NextRequest) {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ refresh_token }),
+      body: JSON.stringify({ refresh_token: refreshToken }),
     });
 
     if (!response.ok) {
-      throw new Error("백엔드 refresh 요청 실패");
+      return NextResponse.json(
+        { error: "Backend refresh failed" },
+        { status: response.status }
+      );
     }
 
     const data = await response.json();
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error("/api/auth/refresh 백엔드 연동 실패:", error);
+
+    const res = NextResponse.json(data);
+    if (data.refresh_token) {
+      res.cookies.set("refresh_token", data.refresh_token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "strict",
+        maxAge: 12 * 60 * 60,
+        path: "/",
+      });
+    }
+    if (data.access_token) {
+      res.cookies.set("access_token", data.access_token, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "strict",
+        maxAge: 60 * 60,
+        path: "/",
+      });
+    }
+    return res;
+  } catch {
     return NextResponse.json(
-      { error: "토큰 갱신에 실패했습니다." },
+      { error: "refresh handler error" },
       { status: 500 }
     );
   }

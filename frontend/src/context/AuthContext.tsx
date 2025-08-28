@@ -35,7 +35,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setAuthToken(newToken);
   };
 
-  // 토큰 만료 확인 함수
   const isTokenExpired = (token: string): boolean => {
     try {
       const payload = JSON.parse(atob(token.split(".")[1]));
@@ -48,130 +47,65 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const refreshToken = async () => {
     try {
-      let refreshToken = sessionStorage.getItem("refreshToken");
-
-      if (!refreshToken) {
-        refreshToken = localStorage.getItem("refreshToken");
-        if (refreshToken) {
-          console.log(
-            "refreshToken을 localStorage에서 sessionStorage로 복사합니다."
-          );
-          sessionStorage.setItem("refreshToken", refreshToken);
-        } else {
-          throw new Error("Refresh token not found");
-        }
-      }
-
       const response = await fetch("/api/auth/refresh", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ refresh_token: refreshToken }),
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("토큰 갱신 응답 오류:", errorText);
         throw new Error(
           `Token refresh failed: ${response.status} ${errorText}`
         );
       }
 
       const data = await response.json();
-
       setTokenAndUpdateAxios(data.access_token);
-      localStorage.setItem("token", data.access_token);
-      localStorage.setItem("refreshToken", data.refresh_token); // localStorage에도 저장
-      sessionStorage.setItem("refreshToken", data.refresh_token);
-
-      document.cookie = `access_token=${data.access_token}; path=/; max-age=${
-        60 * 60
-      }; SameSite=Strict`;
-
-      return data.access_token; // 성공 시 새 토큰 반환
+      return data.access_token;
     } catch (error) {
-      console.error("토큰 갱신 실패:", error);
       logout();
-      throw error; // 실패 시 에러를 다시 던짐
+      throw error;
     }
   };
 
   useEffect(() => {
     const initializeAuth = async () => {
-      const storedUser = localStorage.getItem("user");
-      const storedToken = localStorage.getItem("token");
-
-      // localStorage에 refreshToken이 있고 sessionStorage에 없으면 복사
-      const localRefreshToken = localStorage.getItem("refreshToken");
-      if (localRefreshToken && !sessionStorage.getItem("refreshToken")) {
-        console.log(
-          "초기화: refreshToken을 localStorage에서 sessionStorage로 복사합니다."
-        );
-        sessionStorage.setItem("refreshToken", localRefreshToken);
-      }
-
-      if (
-        storedUser &&
-        storedToken &&
-        storedToken !== "undefined" &&
-        storedToken !== "null" &&
-        storedUser !== "undefined" &&
-        storedUser !== "null"
-      ) {
-        // 토큰 만료 확인
-        if (isTokenExpired(storedToken)) {
-          try {
-            await refreshToken();
-          } catch (error) {
-            console.error("초기화 중 토큰 갱신 실패:", error);
-          }
-        } else {
-          setCurrentUser(storedUser);
-          setTokenAndUpdateAxios(storedToken);
-          setIsLoggedIn(true);
+      setIsLoading(true);
+      try {
+        let res = await fetch("/api/auth/me", { method: "GET" });
+        if (res.status === 401) {
+          await fetch("/api/auth/refresh", { method: "POST" });
+          res = await fetch("/api/auth/me", { method: "GET" });
         }
-      } else {
-        localStorage.removeItem("user");
-        localStorage.removeItem("token");
+        if (res.ok) {
+          const u = await res.json();
+          setCurrentUser(u.username || null);
+          setIsLoggedIn(true);
+        } else {
+          setCurrentUser(null);
+          setIsLoggedIn(false);
+        }
+      } catch {
+        setCurrentUser(null);
+        setIsLoggedIn(false);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     };
 
     initializeAuth();
   }, []);
 
   const login = async (credentials: LoginRequest) => {
-    try {
-      const response: JwtResponse = await apiLogin(credentials);
-      if (!response.token) {
-        throw new Error("로그인 응답에 토큰이 없습니다.");
-      }
-      setCurrentUser(response.username);
-      setTokenAndUpdateAxios(response.token);
-      setIsLoggedIn(true);
-      localStorage.setItem("user", response.username);
-      localStorage.setItem("token", response.token);
-      localStorage.setItem("refreshToken", response.refresh_token);
-      sessionStorage.setItem("refreshToken", response.refresh_token);
-
-      document.cookie = `access_token=${response.token}; path=/; max-age=${
-        60 * 60
-      }; SameSite=Strict`;
-
-      try {
-        window.dispatchEvent(new Event("auth:login"));
-      } catch {}
-    } catch (error) {
-      setCurrentUser(null);
-      setTokenAndUpdateAxios(null);
-      setIsLoggedIn(false);
-      localStorage.removeItem("user");
-      localStorage.removeItem("token");
-      localStorage.removeItem("refreshToken");
-      sessionStorage.removeItem("refreshToken");
-      throw error;
+    const response: JwtResponse = await apiLogin(credentials);
+    if (!response.token) {
+      throw new Error("로그인 응답에 토큰이 없습니다.");
     }
+    setCurrentUser(response.username);
+    setTokenAndUpdateAxios(response.token);
+    setIsLoggedIn(true);
+    try {
+      window.dispatchEvent(new Event("auth:login"));
+    } catch {}
   };
 
   const register = async (userData: SignupRequest) => {
@@ -182,14 +116,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setCurrentUser(null);
     setTokenAndUpdateAxios(null);
     setIsLoggedIn(false);
-    localStorage.removeItem("user");
-    localStorage.removeItem("token");
-    localStorage.removeItem("refreshToken");
-    sessionStorage.removeItem("refreshToken");
-
-    document.cookie =
-      "access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-
     try {
       window.dispatchEvent(new Event("auth:logout"));
     } catch {}

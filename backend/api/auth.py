@@ -134,6 +134,14 @@ def _create_jwt_response(user: User, roles: List[str], db: Session, request: Req
         samesite="strict",
         max_age=12 * 60 * 60  # 12시간
     )
+    json_response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=60 * 60
+    )
     
     return json_response
 
@@ -252,11 +260,30 @@ async def refresh_token(request: Request, refresh_request: RefreshTokenRequest, 
     
     store_refresh_token(db, user.id, new_refresh_token, request)
     
-    return {
-        "access_token": new_access_token,
-        "refresh_token": new_refresh_token,
-        "token_type": "bearer"
-    }
+    json_response = JSONResponse(
+        content={
+            "access_token": new_access_token,
+            "refresh_token": new_refresh_token,
+            "token_type": "bearer"
+        }
+    )
+    json_response.set_cookie(
+        key="refresh_token",
+        value=new_refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=12 * 60 * 60
+    )
+    json_response.set_cookie(
+        key="access_token",
+        value=new_access_token,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=60 * 60
+    )
+    return json_response
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user(

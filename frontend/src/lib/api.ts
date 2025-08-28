@@ -1,55 +1,13 @@
 import { Stats } from "@/types/event";
-import { refreshAccessToken } from "@/lib/axios";
 
-export async function fetchWithAuth(
-  url: string,
-  options: RequestInit = {},
-  retryCount = 0
-) {
-  let token = localStorage.getItem("token");
-
-  if (!token) {
-    try {
-      token = await refreshAccessToken();
-    } catch {}
-  }
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
-  };
-
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
+export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   const response = await fetch(url, {
     ...options,
-    headers,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers as Record<string, string>),
+    },
   });
-
-  if ((response.status === 401 || response.status === 403) && retryCount < 1) {
-    try {
-      const newToken = await refreshAccessToken();
-
-      const newHeaders = {
-        ...headers,
-        Authorization: `Bearer ${newToken}`,
-      };
-
-      return fetch(url, {
-        ...options,
-        headers: newHeaders,
-      });
-    } catch (refreshError) {
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
-      localStorage.removeItem("refreshToken");
-      sessionStorage.removeItem("refreshToken");
-      window.location.href = "/login";
-      throw new Error("인증이 만료되었습니다. 다시 로그인해주세요.");
-    }
-  }
 
   if (!response.ok) {
     throw new Error(`API 요청 실패: ${response.status} ${response.statusText}`);
@@ -64,22 +22,22 @@ export async function fetchStats(): Promise<Stats> {
 }
 
 export async function fetchTimeseries(): Promise<any[]> {
-  const response = await fetchWithAuth("/api/metrics/timeseries");
+  const response = await fetchWithAuth("/api/timeseries");
   return await response.json();
 }
 
 export async function fetchDonutStats(): Promise<any> {
-  const response = await fetchWithAuth("/api/metrics/donut-stats");
+  const response = await fetchWithAuth("/api/donut-stats");
   return await response.json();
 }
 
 export async function fetchBarChart(): Promise<any[]> {
-  const response = await fetchWithAuth("/api/metrics/bar-chart");
+  const response = await fetchWithAuth("/api/bar-chart");
   return await response.json();
 }
 
 export async function fetchHeatMap(): Promise<any[]> {
-  const response = await fetchWithAuth("/api/metrics/heatmap");
+  const response = await fetchWithAuth("/api/heatmap");
   return await response.json();
 }
 

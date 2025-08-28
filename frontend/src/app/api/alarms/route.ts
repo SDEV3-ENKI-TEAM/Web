@@ -1,5 +1,4 @@
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { proxyWithAutoRefresh } from "../_utils/authProxy";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -7,37 +6,7 @@ export async function GET(request: Request) {
   const limit = searchParams.get("limit") || "50";
 
   const backendUrl = `http://localhost:8003/api/alarms?offset=${offset}&limit=${limit}`;
-
-  try {
-    // 쿠키에서 토큰 가져오기
-    const cookieStore = await cookies();
-    const token = cookieStore.get("access_token")?.value;
-
-    if (!token) {
-      return NextResponse.json(
-        { error: "인증 토큰이 없습니다." },
-        { status: 401 }
-      );
-    }
-
-    const response = await fetch(backendUrl, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!response.ok) throw new Error("백엔드 요청 실패");
-    const data = await response.json();
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error("/api/alarms 백엔드 연동 실패:", error);
-    return NextResponse.json({
-      alarms: [],
-      total: 0,
-      offset: parseInt(offset),
-      limit: parseInt(limit),
-      hasMore: false,
-    });
-  }
+  return proxyWithAutoRefresh(request, backendUrl, {
+    headers: { "Content-Type": "application/json" },
+  });
 }
