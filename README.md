@@ -156,8 +156,8 @@ cd backend/kafka
 
 # sse서버 실행
 python sse.py
-# kafka consumer 실행
-python consumer.py
+# kafka consumer 실행(root폴더에서 실행)
+python -m backend.kafka.consumer
 # raw_trace 정규화 실행
 python raw_trace_normalizer.py
 ```
