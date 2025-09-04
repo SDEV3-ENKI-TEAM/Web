@@ -33,22 +33,68 @@
 
 ```
 AI-Detector/
-├── backend/                  # Python FastAPI 백엔드
-│   ├── security_api.py       # 메인 API 서버
-│   ├── opensearch_analyzer.py# OpenSearch 분석기
-│   ├── requirements.txt      # Python 패키지 목록
-│   └── ...
-├── frontend/                 # Next.js 프론트엔드
+├── backend/                          # Python FastAPI 백엔드
+│   ├── api/                          # API 라우터 (auth, settings, alarms, traces, metrics, sigma 등)
+│   │   ├── __init__.py
+│   │   ├── auth.py
+│   │   ├── settings.py
+│   │   ├── traces.py
+│   │   ├── metrics.py
+│   │   ├── alarms.py
+│   │   └── sigma.py
+│   ├── database/                     # DB 모델 및 세션
+│   │   ├── database.py
+│   │   └── user_models.py
+│   ├── kafka/                        # Kafka 컨슈머, SSE, Slack 알림
+│   │   ├── consumer.py
+│   │   ├── raw_trace_normalizer.py
+│   │   ├── sse.py
+│   │   └── slack_notify.py
+│   ├── utils/                        # 공용 유틸(암호화, JWT, 미들웨어 등)
+│   │   ├── auth_deps.py
+│   │   ├── auth_middleware.py
+│   │   ├── crypto_utils.py
+│   │   ├── jwt_utils.py
+│   │   └── opensearch_analyzer.py
+│   ├── security_api.py               # 메인 API 앱 엔트리
+│   ├── start_server.py               # 서버 실행 스크립트
+│   └── requirements.txt              # 백엔드 패키지 목록
+│
+├── frontend/                         # Next.js 프론트엔드
 │   ├── src/
-│   │   ├── app/
+│   │   ├── app/                      # App Router 및 API 프록시
+│   │   │   ├── api/
+│   │   │   │   ├── _utils/           # 백엔드 프록시 유틸
+│   │   │   │   └── settings/
+│   │   │   │       └── slack/
+│   │   │   │           └── test/
+│   │   │   ├── dashboard/
+│   │   │   ├── alarms/
+│   │   │   ├── settings/
+│   │   │   ├── agents/
+│   │   │   ├── login/
+│   │   │   └── signup/
 │   │   ├── components/
-│   │   ├── context/
+│   │   ├── contexts/
+│   │   ├── hooks/
 │   │   ├── lib/
-│   │   └── ...
+│   │   └── types/
 │   ├── package.json
-│   └── ...
-├── import_sigma_rules_advanced.py  # Sigma 룰 MongoDB 임포트 스크립트
-├── requirements.txt
+│   ├── tsconfig.json
+│   └── next.config.js
+│
+├── scripts/
+│   └── import_sigma_rules_advanced.py  # Sigma 룰 MongoDB 임포트 스크립트
+│
+├── EventAgent-main/                  # 에이전트, OTEL, Jaeger, Docker 구성
+│   └── docker-compose.yml
+│
+├── LLMDetection-main/                # LLM 기반 감지 컴포넌트(ChromaDB, LLM 컨슈머 등)
+│   ├── Detector/
+│   └── kafka/
+│
+├── assets/
+├── requirements.txt                  # 루트 공용 요구사항(있을 경우)
 └── README.md
 ```
 

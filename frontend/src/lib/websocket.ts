@@ -1,4 +1,4 @@
-export class WebSocketManager {
+export class SSEManager {
   private es: EventSource | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
@@ -54,8 +54,6 @@ export class WebSocketManager {
       if (this.onDisconnectCallback) {
         this.onDisconnectCallback();
       }
-      // EventSource는 자동 재연결 시도함. 다만 브라우저가 완전히 닫은 경우 수동 재시도
-      // 일부 브라우저에서 영구 에러 시 수동 재연결
       try {
         this.es?.close();
       } catch {}
@@ -81,10 +79,7 @@ export class WebSocketManager {
     }, delay);
   }
 
-  // SSE는 클라이언트->서버 전송이 없으므로 no-op로 유지
-  send(_message: string): void {
-    // intentionally no-op for SSE
-  }
+  send(_message: string): void {}
 
   onMessage(callback: (data: any) => void): void {
     this.onMessageCallback = callback;
@@ -99,14 +94,12 @@ export class WebSocketManager {
   }
 
   isConnected(): boolean {
-    return this.es !== null; // SSE는 상태 확인 API가 제한적이므로 존재 여부로 판단
+    return this.es !== null;
   }
 }
 
-export class AlarmWebSocketManager extends WebSocketManager {
+export class AlarmSSEManager extends SSEManager {
   constructor() {
-    // 기존 WS: ws://localhost:8004/ws/alarms
-    // SSE로 교체: http://localhost:8004/sse/alarms
     super("http://localhost:8004/sse/alarms");
   }
 
@@ -121,8 +114,6 @@ export class AlarmWebSocketManager extends WebSocketManager {
         data.type === "new_trace" ||
         data.type === "trace_update"
       ) {
-        // 서버가 단일 이벤트 형태로 내려줄 수 있으므로 호환 처리
-        // data.alarms가 있으면 그대로, 없으면 data.data 또는 단일 카드에서 배열화
         if (Array.isArray(data.alarms)) {
           callback(data.alarms);
         } else if (Array.isArray(data.data)) {
@@ -140,4 +131,4 @@ export class AlarmWebSocketManager extends WebSocketManager {
   }
 }
 
-export const alarmWebSocket = new AlarmWebSocketManager();
+export const alarmSSE = new AlarmSSEManager();

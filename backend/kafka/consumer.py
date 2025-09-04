@@ -203,7 +203,6 @@ class TraceConsumer:
                     f"새로운 Trace: {trace_id} (sigma 매칭 span: {alarm_card.get('matched_span_count', 0)}개)"
                 )
 
-            # 저장 및 최근 목록 반영
             self.valkey_client.set(
                 trace_key, json.dumps(alarm_card, ensure_ascii=False)
             )
@@ -228,8 +227,7 @@ class TraceConsumer:
             )
             self.valkey_client.ltrim(alarm_key, 0, 99)
 
-            # 이벤트 전송: 최초 저장은 무조건 new_trace, 그 외에는 업데이트시에만 trace_update
-            event_key = "websocket_events"
+            event_key = "sse_events"
             if is_new_card:
                 event_data = {
                     "type": "new_trace",
@@ -598,8 +596,7 @@ class TraceConsumer:
             self.valkey_client.set(trace_key, json.dumps(card, ensure_ascii=False))
             self.valkey_client.expire(trace_key, 86400)
 
-            # SSE 이벤트(ai_update) - username/user_id 포함
-            event_key = "websocket_events"
+            event_key = "sse_events"
             event_data = {
                 "type": "ai_update",
                 "trace_id": trace_id,

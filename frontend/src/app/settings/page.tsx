@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
@@ -76,6 +76,13 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Record<string, any>>({});
   const [showGuide, setShowGuide] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveTimerRef = useRef<any>(null);
+  const didLoadRef = useRef(false);
 
   const handleLogout = () => {
     logout();
@@ -94,6 +101,61 @@ export default function SettingsPage() {
     setHasChanges(true);
   };
 
+  const queueAutoSave = (
+    immediate: boolean = false,
+    draft?: Record<string, any>
+  ) => {
+    if (!didLoadRef.current) return;
+    const doSave = async () => {
+      try {
+        setSaving(true);
+        setSaveStatus("saving");
+        setSaveError(null);
+        const s = draft ?? settings;
+        const enabled = !!(s["notifications_slack_enabled"] ?? false);
+        const channel = s["notifications_slack_channel"] ?? "";
+        const webhook = s["notifications_slack_webhook_url"] ?? "";
+        if (enabled && !webhook) {
+          setSaveStatus("error");
+          setSaveError("Slack 웹훅 URL을 입력하세요");
+          setSaving(false);
+          return;
+        }
+        const resp = await fetch("/api/settings/slack", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            webhook_url: webhook,
+            channel: channel || null,
+            enabled,
+          }),
+        });
+        if (!resp.ok) {
+          setSaveStatus("error");
+          setSaveError(`저장 실패: ${resp.status}`);
+          setSaving(false);
+          return;
+        }
+        setSaveStatus("saved");
+        setHasChanges(false);
+        setSaving(false);
+        setTimeout(() => setSaveStatus("idle"), 1500);
+      } catch (e: any) {
+        setSaveStatus("error");
+        setSaveError("저장 중 오류가 발생했습니다");
+        setSaving(false);
+      }
+    };
+
+    if (immediate) {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      doSave();
+    } else {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(doSave, 600);
+    }
+  };
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -107,6 +169,7 @@ export default function SettingsPage() {
           ["notifications_slack_webhook_url"]: "",
         }));
       } catch {}
+      didLoadRef.current = true;
     };
     load();
   }, []);
@@ -207,16 +270,19 @@ export default function SettingsPage() {
 
                       {setting.type === "toggle" && (
                         <button
-                          onClick={() =>
-                            handleChangeSetting(
-                              category.id,
-                              setting.key,
-                              !(
-                                settings[`${category.id}_${setting.key}`] ??
-                                setting.value
-                              )
-                            )
-                          }
+                          onClick={() => {
+                            const nextValue = !(
+                              settings[`${category.id}_${setting.key}`] ??
+                              setting.value
+                            );
+                            const next = {
+                              ...settings,
+                              [`${category.id}_${setting.key}`]: nextValue,
+                            };
+                            setSettings(next);
+                            setHasChanges(true);
+                            queueAutoSave(true, next);
+                          }}
                           className={`w-14 h-8 rounded-full transition-colors ${
                             settings[`${category.id}_${setting.key}`] ??
                             setting.value
@@ -242,13 +308,15 @@ export default function SettingsPage() {
                             settings[`${category.id}_${setting.key}`] ??
                             setting.value
                           }
-                          onChange={(e) =>
-                            handleChangeSetting(
-                              category.id,
-                              setting.key,
-                              e.target.value
-                            )
-                          }
+                          onChange={(e) => {
+                            const next = {
+                              ...settings,
+                              [`${category.id}_${setting.key}`]: e.target.value,
+                            };
+                            setSettings(next);
+                            setHasChanges(true);
+                            queueAutoSave(false, next);
+                          }}
                         >
                           {setting.options?.map((opt: SettingOption) => (
                             <option key={opt.value} value={opt.value}>
@@ -267,13 +335,16 @@ export default function SettingsPage() {
                             settings[`${category.id}_${setting.key}`] ??
                             setting.value
                           }
-                          onChange={(e) =>
-                            handleChangeSetting(
-                              category.id,
-                              setting.key,
-                              e.target.value
-                            )
-                          }
+                          onChange={(e) => {
+                            const next = {
+                              ...settings,
+                              [`${category.id}_${setting.key}`]: e.target.value,
+                            };
+                            setSettings(next);
+                            setHasChanges(true);
+                            queueAutoSave(false, next);
+                          }}
+                          onBlur={() => queueAutoSave(true)}
                         />
                       )}
                     </div>
@@ -284,24 +355,26 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3">
-          <button
-            onClick={handleResetSettings}
-            className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:bg-slate-700"
-          >
-            초기화
-          </button>
-          <button
-            onClick={handleSaveSettings}
-            className={`px-4 py-2 rounded-lg text-white ${
-              hasChanges
-                ? "bg-blue-600 hover:bg-blue-700"
-                : "bg-slate-600 cursor-not-allowed"
-            }`}
-            disabled={!hasChanges}
-          >
-            저장
-          </button>
+        <div className="flex items-center justify-between">
+          <div className="text-sm">
+            {saveStatus === "saving" && (
+              <span className="text-slate-300">저장 중...</span>
+            )}
+            {saveStatus === "saved" && (
+              <span className="text-green-400">저장됨</span>
+            )}
+            {saveStatus === "error" && (
+              <span className="text-red-400">{saveError || "저장 실패"}</span>
+            )}
+          </div>
+          <div className="flex items-center justify-end gap-3">
+            <button
+              onClick={handleResetSettings}
+              className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:bg-slate-700"
+            >
+              초기화
+            </button>
+          </div>
         </div>
       </div>
     </DashboardLayout>

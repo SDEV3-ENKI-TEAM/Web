@@ -6,8 +6,8 @@ from urllib import request, error
 
 from sqlalchemy.orm import Session
 
-from database.database import SessionLocal, SlackSettings
-from utils.crypto_utils import decrypt_str
+from backend.database.database import SessionLocal, SlackSettings
+from backend.utils.crypto_utils import decrypt_str
 
 logger = logging.getLogger(__name__)
 

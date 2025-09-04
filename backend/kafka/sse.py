@@ -77,10 +77,10 @@ class ValkeyEventReader:
         )
         self.last_event_index = 0
     
-    def get_websocket_events(self) -> List[Dict[str, Any]]:
+    def get_sse_events(self) -> List[Dict[str, Any]]:
         """새로운 알람 이벤트 조회"""
         try:
-            events = self.valkey_client.lrange('websocket_events', 0, -1)
+            events = self.valkey_client.lrange('sse_events', 0, -1)
             new_events = []
             
             for event_str in events:
@@ -280,7 +280,7 @@ async def broadcast_events():
     """Valkey 이벤트를 SSE로 브로드캐스트 (사용자별 분리)"""
     while True:
         try:
-            events = valkey_reader.get_websocket_events()
+            events = valkey_reader.get_sse_events()
             
             if events and sse_manager.user_queues:
                 broadcast_count = 0
@@ -306,7 +306,7 @@ async def broadcast_events():
 
                 if broadcast_count > 0:
                     for _ in range(broadcast_count):
-                        valkey_reader.valkey_client.rpop('websocket_events')
+                        valkey_reader.valkey_client.rpop('sse_events')
             
             await asyncio.sleep(1)
             
