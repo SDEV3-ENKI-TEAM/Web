@@ -69,7 +69,7 @@ class OpenSearchAnalyzer:
                     korean_event_types = {
                         'process_creation': '프로세스 생성',
                         'process_termination': '프로세스 종료',
-                        'network_connection': '네트워크 연결',
+                        'NetworkConnect': '네트워크 연결',
                         'file_write': '파일 쓰기',
                         'registry_modification': '레지스트리 수정',
                         'file_access': '파일 접근'

@@ -117,7 +117,7 @@ function getProcessDisplayName(event: any): string {
 const ruleNameKorean: { [key: string]: string } = {
   ProcessTerminate: "프로세스 종료",
   ProcessCreate: "프로세스 생성",
-  NetworkConnection: "네트워크 연결",
+  NetworkConnect: "네트워크 연결",
   FileCreate: "파일 생성",
   FileDelete: "파일 삭제",
   RegistrySet: "레지스트리 설정",

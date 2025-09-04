@@ -84,6 +84,12 @@ export default function SettingsPage() {
   const saveTimerRef = useRef<any>(null);
   const didLoadRef = useRef(false);
 
+  const isWebhookMasked = (s: Record<string, any>) => {
+    const masked = s["notifications_slack_webhook_url_masked"] || "";
+    const cur = s["notifications_slack_webhook_url"] || "";
+    return masked && cur === masked;
+  };
+
   const handleLogout = () => {
     logout();
     router.push("/login");
@@ -108,10 +114,16 @@ export default function SettingsPage() {
     if (!didLoadRef.current) return;
     const doSave = async () => {
       try {
+        const s = draft ?? settings;
+        if (isWebhookMasked(s)) {
+          setSaveStatus("idle");
+          setSaving(false);
+          setHasChanges(false);
+          return;
+        }
         setSaving(true);
         setSaveStatus("saving");
         setSaveError(null);
-        const s = draft ?? settings;
         const enabled = !!(s["notifications_slack_enabled"] ?? false);
         const channel = s["notifications_slack_channel"] ?? "";
         const webhook = s["notifications_slack_webhook_url"] ?? "";
@@ -166,7 +178,9 @@ export default function SettingsPage() {
           ...prev,
           ["notifications_slack_enabled"]: !!data.enabled,
           ["notifications_slack_channel"]: data.channel || "",
-          ["notifications_slack_webhook_url"]: "",
+          ["notifications_slack_webhook_url_masked"]:
+            data.webhook_url_masked || "",
+          ["notifications_slack_webhook_url"]: data.webhook_url_masked || "",
         }));
       } catch {}
       didLoadRef.current = true;
@@ -270,18 +284,46 @@ export default function SettingsPage() {
 
                       {setting.type === "toggle" && (
                         <button
-                          onClick={() => {
-                            const nextValue = !(
+                          onClick={async () => {
+                            const current = !!(
                               settings[`${category.id}_${setting.key}`] ??
                               setting.value
                             );
+                            const nextValue = !current;
                             const next = {
                               ...settings,
                               [`${category.id}_${setting.key}`]: nextValue,
                             };
                             setSettings(next);
                             setHasChanges(true);
-                            queueAutoSave(true, next);
+                            setSaveStatus("saving");
+                            try {
+                              const resp = await fetch(
+                                "/api/settings/slack/enabled",
+                                {
+                                  method: "PATCH",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                  },
+                                  body: JSON.stringify({ enabled: nextValue }),
+                                }
+                              );
+                              if (!resp.ok) {
+                                throw new Error(await resp.text());
+                              }
+                              setSaveStatus("saved");
+                              setTimeout(() => setSaveStatus("idle"), 1500);
+                            } catch (e: any) {
+                              const reverted = {
+                                ...settings,
+                                [`${category.id}_${setting.key}`]: current,
+                              };
+                              setSettings(reverted);
+                              setSaveStatus("error");
+                              setSaveError(
+                                "웹훅이 필요하거나 저장에 실패했습니다"
+                              );
+                            }
                           }}
                           className={`w-14 h-8 rounded-full transition-colors ${
                             settings[`${category.id}_${setting.key}`] ??
@@ -335,6 +377,18 @@ export default function SettingsPage() {
                             settings[`${category.id}_${setting.key}`] ??
                             setting.value
                           }
+                          onFocus={() => {
+                            if (
+                              setting.key === "slack_webhook_url" &&
+                              isWebhookMasked(settings)
+                            ) {
+                              const next = {
+                                ...settings,
+                                ["notifications_slack_webhook_url"]: "",
+                              };
+                              setSettings(next);
+                            }
+                          }}
                           onChange={(e) => {
                             const next = {
                               ...settings,
@@ -342,9 +396,20 @@ export default function SettingsPage() {
                             };
                             setSettings(next);
                             setHasChanges(true);
-                            queueAutoSave(false, next);
+                            if (setting.key === "slack_webhook_url") {
+                              queueAutoSave(false, next);
+                            } else {
+                              queueAutoSave(false, next);
+                            }
                           }}
-                          onBlur={() => queueAutoSave(true)}
+                          onBlur={() => {
+                            if (
+                              setting.key === "slack_webhook_url" &&
+                              isWebhookMasked(settings)
+                            )
+                              return;
+                            queueAutoSave(true);
+                          }}
                         />
                       )}
                     </div>

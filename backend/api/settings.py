@@ -21,6 +21,9 @@ class SlackSettingsOut(BaseModel):
 	channel: Optional[str]
 	enabled: bool
 
+class SlackEnabledIn(BaseModel):
+	enabled: bool
+
 @router.get("/slack", response_model=SlackSettingsOut)
 async def get_slack_settings(db: Session = Depends(get_db)):
 	row = db.query(SlackSettings).order_by(SlackSettings.id.asc()).first()
@@ -47,6 +50,27 @@ async def put_slack_settings(payload: SlackSettingsIn, db: Session = Depends(get
 	db.commit()
 	db.refresh(row)
 	masked = str(payload.webhook_url)[:16] + "****"
+	return SlackSettingsOut(webhook_url_masked=masked, channel=row.channel, enabled=row.enabled)
+
+@router.patch("/slack/enabled", response_model=SlackSettingsOut)
+async def patch_slack_enabled(payload: SlackEnabledIn, db: Session = Depends(get_db)):
+	row = db.query(SlackSettings).order_by(SlackSettings.id.asc()).first()
+	if not row:
+		if payload.enabled:
+			raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slack webhook required")
+		row = SlackSettings(webhook_url_enc="", channel=None, enabled=False)
+		db.add(row)
+	else:
+		if payload.enabled and not row.webhook_url_enc:
+			raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slack webhook required")
+	row.enabled = payload.enabled
+	db.commit()
+	db.refresh(row)
+	try:
+		dec = decrypt_str(row.webhook_url_enc) if row.webhook_url_enc else ""
+	except Exception:
+		dec = ""
+	masked = dec[:16] + "****" if dec else ""
 	return SlackSettingsOut(webhook_url_masked=masked, channel=row.channel, enabled=row.enabled)
 
 class SlackTestOut(BaseModel):

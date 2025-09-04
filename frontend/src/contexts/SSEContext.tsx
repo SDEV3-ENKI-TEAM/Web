@@ -58,6 +58,49 @@ interface SSEProviderProps {
 
 const DISMISSED_STORAGE_KEY = "dismissed_notifications";
 
+const toTs = (t: any): number => {
+  if (typeof t === "number") return t;
+  if (typeof t === "string") {
+    const n = Date.parse(t);
+    return isNaN(n) ? 0 : n;
+  }
+  return 0;
+};
+
+const getRecency = (a: any): number => {
+  const u = (a && (a.updated_at as any)) || 0;
+  const d = (a && (a.detected_at as any)) || 0;
+  return Math.max(toTs(u), toTs(d));
+};
+
+const upsertByTraceId = (
+  prev: Alarm[],
+  items: Alarm[],
+  limit: number = 100
+): Alarm[] => {
+  const map = new Map<string, Alarm>();
+  for (const p of prev) map.set(p.trace_id, p);
+  for (const incoming of items) {
+    const ex = map.get(incoming.trace_id);
+    if (!ex) {
+      map.set(incoming.trace_id, incoming);
+      continue;
+    }
+    const newer = getRecency(incoming) >= getRecency(ex);
+    if (newer) {
+      const merged: Alarm = {
+        ...ex,
+        ...incoming,
+        detected_at: ex.detected_at ?? incoming.detected_at,
+      } as Alarm;
+      map.set(incoming.trace_id, merged);
+    }
+  }
+  const arr = Array.from(map.values());
+  arr.sort((a, b) => getRecency(b) - getRecency(a));
+  return arr.slice(0, limit);
+};
+
 export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
   const [alarms, setAlarms] = useState<Alarm[]>([]);
   const [notifications, setNotifications] = useState<Alarm[]>([]);
@@ -192,8 +235,8 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
           try {
             const data = JSON.parse(event.data);
             if (data.type === "initial_data") {
-              const initialAlarms = data.alarms || [];
-              setAlarms(initialAlarms);
+              const initialAlarms = (data.alarms || []) as Alarm[];
+              setAlarms((prev) => upsertByTraceId(prev, initialAlarms, 100));
             } else if (data.type === "new_trace") {
               const newAlarm: Alarm = data.data;
               const key = newAlarm.trace_id;
@@ -205,27 +248,18 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
                 return;
               }
               recentMapRef.current.set(key, now + 10000);
-              setAlarms((prevAlarms) => {
-                const exists = prevAlarms.find(
-                  (alarm) => alarm.trace_id === newAlarm.trace_id
-                );
-                if (exists) return prevAlarms;
-                const newAlarmWithHighlight = {
-                  ...newAlarm,
-                  isUpdated: true,
-                  detected_at: newAlarm.detected_at,
-                };
-                setHighlight(newAlarm.trace_id, 5000);
-                return [newAlarmWithHighlight, ...prevAlarms.slice(0, 99)];
+              const withFlag = { ...newAlarm, isUpdated: true } as Alarm;
+              setAlarms((prev) => {
+                const next = upsertByTraceId(prev, [withFlag], 100);
+                return next;
               });
+              setHighlight(newAlarm.trace_id, 5000);
               setNotifications((prev) => {
                 if (prev.some((n) => n.trace_id === newAlarm.trace_id))
                   return prev;
                 const next = [
                   {
-                    ...newAlarm,
-                    isUpdated: true,
-                    detected_at: newAlarm.detected_at,
+                    ...withFlag,
                     toast_id: `${newAlarm.trace_id}-${Date.now()}`,
                   },
                   ...prev,
@@ -237,35 +271,26 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
               if (!data.trace_id || !data.data) {
                 return;
               }
-              setAlarms((prevAlarms) => {
-                return prevAlarms.map((alarm) => {
-                  if (alarm.trace_id === data.trace_id) {
-                    const updatedAlarm = {
-                      ...alarm,
-                      ...data.data,
-                      detected_at: alarm.detected_at,
-                    } as Alarm;
-                    return updatedAlarm;
-                  }
-                  return alarm;
-                });
-              });
+              const partial = {
+                trace_id: data.trace_id,
+                ...data.data,
+              } as Alarm;
+              const withFlag = { ...partial, isUpdated: true } as Alarm;
+              setAlarms((prev) => upsertByTraceId(prev, [withFlag], 100));
+              setHighlight(data.trace_id, 3000);
             } else if (data.type === "ai_update") {
               if (!data.trace_id || !data.data) {
                 return;
               }
               const traceId: string = data.trace_id;
               const payload = data.data || {};
-              setAlarms((prevAlarms) => {
-                const idx = prevAlarms.findIndex((a) => a.trace_id === traceId);
-                if (idx >= 0) {
-                  const updated = { ...prevAlarms[idx], ...payload } as Alarm;
-                  const next = prevAlarms.slice();
-                  next[idx] = updated;
-                  return next;
-                }
-                return prevAlarms;
-              });
+              const partial = {
+                trace_id: traceId,
+                ...(payload as any),
+              } as Alarm;
+              setAlarms((prevAlarms) =>
+                upsertByTraceId(prevAlarms, [partial], 100)
+              );
             }
           } catch {}
         };
