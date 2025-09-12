@@ -38,7 +38,8 @@ def send_slack_alert(severity: str, trace_id: Optional[str] = None, summary: Opt
 		if not conf:
 			return False
 		url, channel = conf
-		text = f"위험도가 {severity}인 알림이 발생했습니다"
+		text = f"""위험도가 {severity}인 알림이 발생했습니다
+		localhost:3000/alarms/{trace_id}"""
 		payload = {"text": text}
 		if channel:
 			payload["channel"] = channel

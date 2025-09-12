@@ -21,10 +21,161 @@ class AlarmStatusUpdate(BaseModel):
 	checked: bool
 
 
+class TraceIdsPayload(BaseModel):
+	trace_ids: list[str]
+
+
+@router.post("/meta/batch")
+async def get_alarm_meta_batch(payload: TraceIdsPayload, request: Request, current_user: dict = Depends(get_current_user_with_roles)):
+	try:
+		if not payload.trace_ids:
+			return {"meta": []}
+		vk = getattr(request.app.state, "valkey", None)
+		opensearch_analyzer = request.app.state.opensearch
+		mongo_collection = request.app.state.mongo_collection
+		user_id = current_user["id"]
+		username = current_user["username"]
+
+		keys = [f"trace:{tid}" for tid in payload.trace_ids]
+		cached = []
+		if vk:
+			try:
+				cached = vk.mget(keys)
+			except Exception:
+				cached = [None] * len(keys)
+		else:
+			cached = [None] * len(keys)
+
+		results_map = {}
+		miss_ids = []
+		for tid, raw in zip(payload.trace_ids, cached):
+			if raw:
+				try:
+					import json
+					results_map[tid] = json.loads(raw)
+				except Exception:
+					pass
+			else:
+				miss_ids.append(tid)
+
+		if miss_ids:
+			query = {
+				"query": {
+					"bool": {
+						"must": [
+							{"terms": {"traceID": miss_ids}},
+							{"bool": {
+								"should": [
+									{"term": {"tag.user_id": str(user_id)}},
+									{"term": {"tag.user_id": username}}
+								]
+							}}
+						]
+					}
+				},
+				"size": 10000
+			}
+			resp = opensearch_analyzer.client.search(index="jaeger-span-*", body=query)
+			by_trace = {}
+			for hit in resp["hits"]["hits"]:
+				src = hit["_source"]
+				tid = src.get("traceID")
+				if not tid:
+					continue
+				by_trace.setdefault(tid, []).append(src)
+
+			import json
+			for tid in miss_ids:
+				spans = by_trace.get(tid, [])
+				if not spans:
+					continue
+				operation = spans[0].get("operationName", "")
+				host = spans[0].get("tag", {}).get("User", "-")
+				os_type = spans[0].get("tag", {}).get("Product", "-")
+				unique_rule_ids = set()
+				matched_span_count = 0
+				for s in spans:
+					tag = s.get("tag", {})
+					if tag.get("sigma@alert"):
+						unique_rule_ids.add(str(tag.get("sigma@alert")).strip())
+						matched_span_count += 1
+				severity_scores = []
+				matched_rules = []
+				for sigma_id in unique_rule_ids:
+					rule_info = mongo_collection.find_one({"sigma_id": sigma_id}) if (mongo_collection is not None) else None
+					if rule_info:
+						severity_scores.append(rule_info.get("severity_score", 30))
+						matched_rules.append({
+							"sigma_id": sigma_id,
+							"level": rule_info.get("level", "low"),
+							"severity_score": rule_info.get("severity_score", 30),
+							"title": rule_info.get("title", "")
+						})
+				avg = sum(severity_scores) / len(severity_scores) if severity_scores else 30
+				if avg >= 90:
+					severity = "critical"
+				elif avg >= 80:
+					severity = "high"
+				elif avg > 60:
+					severity = "medium"
+				else:
+					severity = "low"
+				def _level_weight(lv: str) -> int:
+					lv = (lv or "").lower()
+					if lv == "critical":
+						return 4
+					if lv == "high":
+						return 3
+					if lv == "medium":
+						return 2
+					if lv == "low":
+						return 1
+					return 0
+				top_title = ""
+				if matched_rules:
+					try:
+						top_score = max(r.get("severity_score", 0) for r in matched_rules)
+					except Exception:
+						top_score = 0
+					candidates = [r for r in matched_rules if r.get("severity_score", 0) == top_score]
+					candidates.sort(key=lambda r: (-_level_weight(r.get("level", "")), str(r.get("sigma_id", ""))))
+					top_title = candidates[0].get("title", "") if candidates else ""
+				sigma_rule_title = top_title or (operation or "-")
+				card = {
+					"trace_id": tid,
+					"detected_at": spans[0].get("startTimeMillis", 0),
+					"summary": operation or "-",
+					"host": host or "-",
+					"os": os_type or "-",
+					"checked": False,
+					"matched_span_count": matched_span_count,
+					"matched_rule_unique_count": len(unique_rule_ids),
+					"severity": severity,
+					"severity_score": avg,
+					"matched_rules": matched_rules,
+					"user_id": username,
+					"sigma_rule_title": sigma_rule_title
+				}
+				results_map[tid] = card
+				if vk:
+					try:
+						vk.set(f"trace:{tid}", json.dumps(card, ensure_ascii=False))
+						vk.expire(f"trace:{tid}", 86400)
+					except Exception:
+						pass
+
+		ordered = [results_map.get(tid) for tid in payload.trace_ids if results_map.get(tid)]
+		return {"meta": ordered}
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("")
 async def get_alarm_traces(request: Request, offset: int = 0, limit: int = 50, current_user: dict = Depends(get_current_user_with_roles)):
 	try:
+		vk = getattr(request.app.state, "valkey", None)
 		opensearch_analyzer = request.app.state.opensearch
+		mongo_collection = request.app.state.mongo_collection
 		user_id = current_user["id"]
 		username = current_user["username"]
 
@@ -35,6 +186,14 @@ async def get_alarm_traces(request: Request, offset: int = 0, limit: int = 50, c
 						{"term": {"tag.otel@status_code": "ERROR"}},
 						{"exists": {"field": "tag.sigma@alert"}},
 						{"term": {"tag.error": True}}
+					],
+					"must": [
+						{"bool": {
+							"should": [
+								{"term": {"tag.user_id": str(user_id)}},
+								{"term": {"tag.user_id": username}}
+							]
+						}}
 					]
 				}
 			},
@@ -43,63 +202,145 @@ async def get_alarm_traces(request: Request, offset: int = 0, limit: int = 50, c
 			"from": 0
 		}
 
-		query["query"]["bool"]["must"] = [
-			{"bool": {
-				"should": [
-					{"term": {"tag.user_id": str(user_id)}},
-					{"term": {"tag.user_id": username}}
-				]
-			}}
-		]
-
 		response = opensearch_analyzer.client.search(index="jaeger-span-*", body=query)
 
-		alarms = []
-		seen_trace_ids = set()
-		trace_span_counts = {}
-
-		unique_trace_ids = list(set(span['_source'].get("traceID", "") for span in response['hits']['hits'] if span['_source'].get("traceID", "")))
-
-		for trace_id in unique_trace_ids:
-			sigma_span_count = 0
-			for span in response['hits']['hits']:
-				src = span['_source']
-				if src.get('traceID', '') == trace_id:
-					tag = src.get('tag', {})
-					if tag.get('sigma@alert') and tag.get('sigma@alert').strip():
-						sigma_span_count += 1
-			trace_span_counts[trace_id] = sigma_span_count
-
+		seen = set()
+		trace_ids = []
 		for span in response['hits']['hits']:
 			src = span['_source']
-			trace_id = src.get("traceID", "")
-			if trace_id in seen_trace_ids:
-				continue
-			seen_trace_ids.add(trace_id)
-			tag = src.get('tag', {})
-			alarms.append({
-				"trace_id": trace_id,
-				"detected_at": to_korea_time(src.get("startTimeMillis", 0)),
-				"summary": src.get("operationName") or "-",
-				"host": tag.get("User", "-"),
-				"os": tag.get("Product", "-"),
-				"checked": False,
-				"sigma_alert": tag.get("sigma@alert"),
-				"span_count": trace_span_counts.get(trace_id, 0),
-				"ai_summary": "테스트 요약",
-				"user_id": user_id
-			})
+			tid = src.get("traceID", "")
+			if tid and tid not in seen:
+				seen.add(tid)
+				trace_ids.append(tid)
 
-		total = len(alarms)
-		paged = alarms[offset:offset+limit]
+		total = len(trace_ids)
+		paged = trace_ids[offset:offset+limit]
+
+		if paged:
+			keys = [f"trace:{tid}" for tid in paged]
+			cached = []
+			if vk:
+				try:
+					cached = vk.mget(keys)
+				except Exception:
+					cached = [None] * len(keys)
+			else:
+				cached = [None] * len(keys)
+			miss_ids = []
+			for tid, raw in zip(paged, cached):
+				if raw:
+					continue
+				miss_ids.append(tid)
+			if miss_ids:
+				q2 = {
+					"query": {
+						"bool": {
+							"must": [
+								{"terms": {"traceID": miss_ids}},
+								{"bool": {
+									"should": [
+										{"term": {"tag.user_id": str(user_id)}},
+										{"term": {"tag.user_id": username}}
+									]
+								}}
+							]
+						}
+					},
+					"size": 10000
+				}
+				resp2 = opensearch_analyzer.client.search(index="jaeger-span-*", body=q2)
+				by_trace = {}
+				for hit in resp2["hits"]["hits"]:
+					src = hit["_source"]
+					t = src.get("traceID")
+					if not t:
+						continue
+					by_trace.setdefault(t, []).append(src)
+				import json
+				for t in miss_ids:
+					spans = by_trace.get(t, [])
+					if not spans:
+						continue
+					operation = spans[0].get("operationName", "")
+					host = spans[0].get("tag", {}).get("User", "-")
+					os_type = spans[0].get("tag", {}).get("Product", "-")
+					unique_rule_ids = set()
+					matched_span_count = 0
+					for s in spans:
+						tag = s.get("tag", {})
+						if tag.get("sigma@alert"):
+							unique_rule_ids.add(str(tag.get("sigma@alert")).strip())
+							matched_span_count += 1
+					severity_scores = []
+					for sigma_id in unique_rule_ids:
+						rule_info = mongo_collection.find_one({"sigma_id": sigma_id}) if (mongo_collection is not None) else None
+						if rule_info:
+							severity_scores.append(rule_info.get("severity_score", 30))
+					avg = sum(severity_scores) / len(severity_scores) if severity_scores else 30
+					if avg >= 90:
+						sev = "critical"
+					elif avg >= 80:
+						sev = "high"
+					elif avg > 60:
+						sev = "medium"
+					else:
+						sev = "low"
+					def _level_weight(lv: str) -> int:
+						lv = (lv or "").lower()
+						if lv == "critical":
+							return 4
+						if lv == "high":
+							return 3
+						if lv == "medium":
+							return 2
+						if lv == "low":
+							return 1
+						return 0
+					top_title = ""
+					matched_rules_for_title = []
+					for sigma_id in unique_rule_ids:
+						ri = mongo_collection.find_one({"sigma_id": sigma_id}) if (mongo_collection is not None) else None
+						if ri:
+							matched_rules_for_title.append({
+								"sigma_id": sigma_id,
+								"level": ri.get("level", "low"),
+								"severity_score": ri.get("severity_score", 30),
+								"title": ri.get("title", "")
+							})
+					if matched_rules_for_title:
+						top_score = max(r.get("severity_score", 0) for r in matched_rules_for_title)
+						cands = [r for r in matched_rules_for_title if r.get("severity_score", 0) == top_score]
+						cands.sort(key=lambda r: (-_level_weight(r.get("level", "")), str(r.get("sigma_id", ""))))
+						top_title = cands[0].get("title", "") if cands else ""
+					sigma_rule_title = top_title or (operation or "-")
+					card = {
+						"trace_id": t,
+						"detected_at": spans[0].get("startTimeMillis", 0),
+						"summary": operation or "-",
+						"host": host or "-",
+						"os": os_type or "-",
+						"checked": False,
+						"matched_span_count": matched_span_count,
+						"matched_rule_unique_count": len(unique_rule_ids),
+						"severity": sev,
+						"severity_score": avg,
+						"user_id": username,
+						"sigma_rule_title": sigma_rule_title
+					}
+					if vk:
+						try:
+							vk.set(f"trace:{t}", json.dumps(card, ensure_ascii=False))
+							vk.expire(f"trace:{t}", 86400)
+						except Exception:
+							pass
+
 		has_more = offset + limit < total
 		return {
-			"alarms": paged,
+			"trace_ids": paged,
 			"total": total,
 			"offset": offset,
 			"limit": limit,
-			"hasMore": has_more,
-			"user_id": user_id
+			"hasMore": has_more
 		}
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=str(e))
@@ -262,7 +503,7 @@ async def get_trace_severity(trace_id: str, request: Request, current_user: dict
 			tag = src.get('tag', {})
 			sigma_alert = tag.get('sigma@alert', '')
 			if sigma_alert:
-				rule_info = mongo_collection.find_one({"sigma_id": sigma_alert}) if mongo_collection else None
+				rule_info = mongo_collection.find_one({"sigma_id": sigma_alert}) if (mongo_collection is not None) else None
 				if rule_info:
 					severity_score = rule_info.get('severity_score', 30)
 					level = rule_info.get('level', 'low')
@@ -322,5 +563,220 @@ async def update_alarm_status(payload: AlarmStatusUpdate):
 		with open(status_file, 'w', encoding='utf-8') as f:
 			json.dump(alarm_status, f, ensure_ascii=False, indent=2)
 		return {"success": True, "message": "알림 상태가 업데이트되었습니다."}
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/warm-cache")
+async def warm_cache(request: Request, limit: int = 200, current_user: dict = Depends(get_current_user_with_roles)):
+	try:
+		vk = getattr(request.app.state, "valkey", None)
+		if not vk:
+			raise HTTPException(status_code=500, detail="Valkey 연결이 없습니다.")
+		opensearch_analyzer = request.app.state.opensearch
+		mongo_collection = request.app.state.mongo_collection
+		user_id = current_user["id"]
+		username = current_user["username"]
+
+		def unique_trace_ids_from_hits(hits):
+			seen = set()
+			ids = []
+			for h in hits:
+				src = h.get("_source", {})
+				tid = src.get("traceID")
+				if tid and tid not in seen:
+					seen.add(tid)
+					ids.append(tid)
+			return ids
+
+		query = {
+			"query": {
+				"bool": {
+					"should": [
+						{"term": {"tag.otel@status_code": "ERROR"}},
+						{"exists": {"field": "tag.sigma@alert"}},
+						{"term": {"tag.error": True}}
+					],
+					"must": [
+						{"bool": {
+							"should": [
+								{"term": {"tag.user_id": str(user_id)}},
+								{"term": {"tag.user_id": username}}
+							]
+						}}
+					]
+				}
+			},
+			"sort": [{"startTime": {"order": "desc"}}],
+			"size": max(limit * 5, 1000),
+			"from": 0
+		}
+
+		resp = opensearch_analyzer.client.search(index="jaeger-span-*", body=query)
+		candidate_ids = unique_trace_ids_from_hits(resp.get("hits", {}).get("hits", []))[:limit]
+		if not candidate_ids:
+			return {"warmed": 0, "cached": 0, "total": 0, "ids": []}
+
+		keys = [f"trace:{tid}" for tid in candidate_ids]
+		try:
+			cached_values = vk.mget(keys)
+		except Exception:
+			cached_values = [None] * len(keys)
+		miss_ids = []
+		for tid, raw in zip(candidate_ids, cached_values):
+			if not raw:
+				miss_ids.append(tid)
+
+		def chunk(lst, n):
+			for i in range(0, len(lst), n):
+				yield lst[i:i+n]
+
+		status_file = "alarm_status.json"
+		checked_map = {}
+		if os.path.exists(status_file):
+			try:
+				with open(status_file, 'r', encoding='utf-8') as f:
+					checked_map = json.load(f) or {}
+			except:
+				checked_map = {}
+
+		warmed = 0
+		for batch in chunk(miss_ids, 500):
+			if not batch:
+				continue
+			q2 = {
+				"query": {
+					"bool": {
+						"must": [
+							{"terms": {"traceID": batch}},
+							{"bool": {
+								"should": [
+									{"term": {"tag.user_id": str(user_id)}},
+									{"term": {"tag.user_id": username}}
+								]
+							}}
+						]
+					}
+				},
+				"size": 10000
+			}
+			resp2 = opensearch_analyzer.client.search(index="jaeger-span-*", body=q2)
+			by_trace = {}
+			for hit in resp2.get("hits", {}).get("hits", []):
+				src = hit.get("_source", {})
+				t = src.get("traceID")
+				if not t:
+					continue
+				by_trace.setdefault(t, []).append(src)
+
+			for tid in batch:
+				spans = by_trace.get(tid, [])
+				if not spans:
+					continue
+				operation = spans[0].get("operationName", "")
+				host = spans[0].get("tag", {}).get("User", "-")
+				os_type = spans[0].get("tag", {}).get("Product", "-")
+				unique_rule_ids = set()
+				matched_span_count = 0
+				for s in spans:
+					tag = s.get("tag", {})
+					if tag.get("sigma@alert"):
+						unique_rule_ids.add(str(tag.get("sigma@alert")).strip())
+						matched_span_count += 1
+
+				severity_scores = []
+				matched_rules = []
+				for sigma_id in unique_rule_ids:
+					rule_info = mongo_collection.find_one({"sigma_id": sigma_id}) if (mongo_collection is not None) else None
+					if rule_info:
+						severity_scores.append(rule_info.get("severity_score", 30))
+						matched_rules.append({
+							"sigma_id": sigma_id,
+							"level": rule_info.get("level", "low"),
+							"severity_score": rule_info.get("severity_score", 30),
+							"title": rule_info.get("title", "")
+						})
+					else:
+						severity_scores.append(90)
+						matched_rules.append({
+							"sigma_id": sigma_id,
+							"level": "high",
+							"severity_score": 90,
+							"title": sigma_id
+						})
+
+				avg = sum(severity_scores) / len(severity_scores) if severity_scores else 30
+				if avg >= 90:
+					severity = "critical"
+				elif avg >= 80:
+					severity = "high"
+				elif avg > 60:
+					severity = "medium"
+				else:
+					severity = "low"
+
+				def _level_weight(lv: str) -> int:
+					lv = (lv or "").lower()
+					if lv == "critical":
+						return 4
+					if lv == "high":
+						return 3
+					if lv == "medium":
+						return 2
+					if lv == "low":
+						return 1
+					return 0
+				top_title = ""
+				if matched_rules:
+					try:
+						top_score = max(r.get("severity_score", 0) for r in matched_rules)
+					except Exception:
+						top_score = 0
+					cands = [r for r in matched_rules if r.get("severity_score", 0) == top_score]
+					cands.sort(key=lambda r: (-_level_weight(r.get("level", "")), str(r.get("sigma_id", ""))))
+					top_title = cands[0].get("title", "") if cands else ""
+				sigma_rule_title = top_title or (operation or "-")
+
+				detected_at_ms = spans[0].get("startTimeMillis", 0)
+				card = {
+					"trace_id": tid,
+					"detected_at": detected_at_ms,
+					"summary": operation or "-",
+					"host": host or "-",
+					"os": os_type or "-",
+					"checked": bool(checked_map.get(tid, False)),
+					"matched_span_count": matched_span_count,
+					"matched_rule_unique_count": len(unique_rule_ids),
+					"severity": severity,
+					"severity_score": avg,
+					"matched_rules": matched_rules,
+					"user_id": username,
+					"sigma_rule_title": sigma_rule_title
+				}
+
+				try:
+					existing_raw = vk.get(f"trace:{tid}")
+					if existing_raw:
+						try:
+							existing = json.loads(existing_raw)
+						except Exception:
+							existing = {}
+						prev_count = int(existing.get("matched_span_count", 0)) if isinstance(existing, dict) else 0
+						prev_unique = int(existing.get("matched_rule_unique_count", 0)) if isinstance(existing, dict) else 0
+						if card["matched_span_count"] < prev_count:
+							card["matched_span_count"] = prev_count
+						if card["matched_rule_unique_count"] < prev_unique:
+							card["matched_rule_unique_count"] = prev_unique
+				except Exception:
+					pass
+
+				try:
+					vk.set(f"trace:{tid}", json.dumps(card, ensure_ascii=False))
+					vk.expire(f"trace:{tid}", 86400)
+					warmed += 1
+				except Exception:
+					pass
+
+		return {"warmed": warmed, "cached": len(candidate_ids) - len(miss_ids), "total": len(candidate_ids), "ids": candidate_ids}
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=str(e))

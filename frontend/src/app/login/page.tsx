@@ -20,6 +20,9 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login({ username, password });
+      try {
+        await fetch("/api/alarms/warm-cache", { method: "POST" });
+      } catch {}
       router.push("/dashboard");
     } catch (err: any) {
       setError(err.message || "Authentication failed. Please try again.");

@@ -218,6 +218,9 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
       try {
         manualStopRef.current = false;
         try {
+          try {
+            await fetch(`/api/alarms/warm-cache`, { method: "POST" });
+          } catch {}
           esInstance = new EventSource(`/api/sse/alarms?limit=100`);
         } catch {
           setSseError("SSE 연결 생성 실패");
@@ -237,6 +240,11 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
             if (data.type === "initial_data") {
               const initialAlarms = (data.alarms || []) as Alarm[];
               setAlarms((prev) => upsertByTraceId(prev, initialAlarms, 100));
+              if ((initialAlarms?.length || 0) < 5) {
+                fetch(`/api/alarms/warm-cache`, { method: "POST" }).catch(
+                  () => {}
+                );
+              }
             } else if (data.type === "new_trace") {
               const newAlarm: Alarm = data.data;
               const key = newAlarm.trace_id;
@@ -260,7 +268,7 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
                 const next = [
                   {
                     ...withFlag,
-                    toast_id: `${newAlarm.trace_id}-${Date.now()}`,
+                    toast_id: `${Date.now()}-${newAlarm.trace_id}`,
                   },
                   ...prev,
                 ];
@@ -268,47 +276,38 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
                 return next;
               });
             } else if (data.type === "trace_update") {
-              if (!data.trace_id || !data.data) {
-                return;
-              }
-              const partial = {
-                trace_id: data.trace_id,
-                ...data.data,
-              } as Alarm;
-              const withFlag = { ...partial, isUpdated: true } as Alarm;
-              setAlarms((prev) => upsertByTraceId(prev, [withFlag], 100));
-              setHighlight(data.trace_id, 3000);
+              const updatedAlarm: Alarm = data.data;
+              setAlarms((prev) => {
+                const next = upsertByTraceId(prev, [updatedAlarm], 100);
+                return next;
+              });
+              setHighlight(updatedAlarm.trace_id, 3000);
             } else if (data.type === "ai_update") {
-              if (!data.trace_id || !data.data) {
-                return;
-              }
-              const traceId: string = data.trace_id;
-              const payload = data.data || {};
-              const partial = {
-                trace_id: traceId,
-                ...(payload as any),
-              } as Alarm;
-              setAlarms((prevAlarms) =>
-                upsertByTraceId(prevAlarms, [partial], 100)
+              const aiUpdate = data.data || {};
+              const traceId = data.trace_id as string;
+              setAlarms((prev) =>
+                prev.map((a) =>
+                  a.trace_id === traceId
+                    ? { ...a, ...aiUpdate, isUpdated: true }
+                    : a
+                )
               );
+              setHighlight(traceId, 2000);
             }
-          } catch {}
+          } catch (err) {
+            setSseError("데이터 처리 중 오류");
+          }
         };
 
         esInstance.onerror = () => {
           setSseConnected(false);
-          setSseError("SSE 연결 오류");
-          try {
-            esInstance?.close();
-          } catch {}
-          if (!isUnmountedRef.current && !manualStopRef.current && isLoggedIn) {
-            scheduleReconnect();
-          }
+          setSseError("SSE 오류");
+          if (!manualStopRef.current) scheduleReconnect();
         };
 
         setSse(esInstance);
-      } catch {
-        setSseError("연결 실패");
+      } catch (error) {
+        setSseError("SSE 연결 실패");
         scheduleReconnect();
       }
     };

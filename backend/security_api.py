@@ -13,6 +13,7 @@ from pymongo import MongoClient
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+import redis
 
 from api.auth import router as auth_router
 from utils.opensearch_analyzer import OpenSearchAnalyzer
@@ -77,6 +78,36 @@ async def lifespan(app: FastAPI):
             logger.info("MySQL tables ensured via Base.metadata.create_all().")
         except Exception as e:
             logger.warning(f"MySQL table ensure failed or skipped: {e}")
+        try:
+            vh = os.getenv("VALKEY_HOST")
+            vp = int(os.getenv("VALKEY_PORT"))
+            vdb = int(os.getenv("VALKEY_DB"))
+            app.state.valkey = redis.Redis(host=vh, port=vp, db=vdb, decode_responses=True)
+            try:
+                _ = app.state.valkey.ping()
+            except Exception:
+                app.state.valkey = None
+        except Exception:
+            app.state.valkey = None
+
+        try:
+            import threading
+            def _warm_background():
+                try:
+                    import requests
+                    requests.post("http://localhost:8003/api/alarms/warm-cache", timeout=5)
+                except Exception:
+                    pass
+            vk = getattr(app.state, "valkey", None)
+            if vk:
+                try:
+                    keys = vk.keys("trace:*")
+                    if not keys:
+                        threading.Thread(target=_warm_background, daemon=True).start()
+                except Exception:
+                    threading.Thread(target=_warm_background, daemon=True).start()
+        except Exception:
+            pass
         yield
     finally:
         try:
