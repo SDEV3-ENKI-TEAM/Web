@@ -86,28 +86,6 @@ function SidebarComponent() {
       ),
     },
     {
-      href: "/agents",
-      label: "PC 관리",
-      command: "컴퓨터 상태 확인",
-      status: "ONLINE",
-      description: "연결된 컴퓨터들의 보안 상태를 확인하세요",
-      icon: (
-        <svg
-          className="h-4 w-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-          />
-        </svg>
-      ),
-    },
-    {
       href: "/settings",
       label: "설정",
       command: "환경 설정",

@@ -1,6 +1,7 @@
 import json
 import time
 import logging
+import os
 from typing import Optional
 from urllib import request, error
 
@@ -38,8 +39,15 @@ def send_slack_alert(severity: str, trace_id: Optional[str] = None, summary: Opt
 		if not conf:
 			return False
 		url, channel = conf
-		text = f"""위험도가 {severity}인 알림이 발생했습니다
-		localhost:3000/alarms/{trace_id}"""
+
+		origin = os.getenv("FRONTEND_ORIGIN") or "http://localhost:3000"
+		alert_url = f"{origin}/alarms/{trace_id}" if trace_id else origin
+		parts = [f"위험도가 {severity}인 알림이 발생했습니다"]
+		if summary:
+			parts.append(f"요약: {summary}")
+		parts.append(f"<{alert_url}|알람 열기>")
+		text = "\n".join(parts)
+
 		payload = {"text": text}
 		if channel:
 			payload["channel"] = channel
