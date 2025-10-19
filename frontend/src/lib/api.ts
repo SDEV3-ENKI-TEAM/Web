@@ -3,6 +3,7 @@ import { Stats } from "@/types/event";
 export async function fetchWithAuth(url: string, options: RequestInit = {}) {
   const response = await fetch(url, {
     ...options,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(options.headers as Record<string, string>),

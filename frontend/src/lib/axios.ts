@@ -94,6 +94,7 @@ export async function refreshAccessToken(): Promise<string> {
   try {
     const response = await fetch("/api/auth/refresh", {
       method: "POST",
+      credentials: "include",
     });
 
     if (!response.ok) {
@@ -123,6 +124,7 @@ const axiosInstance = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
+  withCredentials: true,
 });
 
 axiosInstance.interceptors.request.use(

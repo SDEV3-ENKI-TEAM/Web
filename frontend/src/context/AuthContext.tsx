@@ -49,6 +49,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const response = await fetch("/api/auth/refresh", {
         method: "POST",
+        credentials: "include",
       });
 
       if (!response.ok) {
@@ -71,10 +72,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const initializeAuth = async () => {
       setIsLoading(true);
       try {
-        let res = await fetch("/api/auth/me", { method: "GET" });
+        let res = await fetch("/api/auth/me", {
+          method: "GET",
+          credentials: "include",
+        });
         if (res.status === 401) {
-          await fetch("/api/auth/refresh", { method: "POST" });
-          res = await fetch("/api/auth/me", { method: "GET" });
+          await fetch("/api/auth/refresh", {
+            method: "POST",
+            credentials: "include",
+          });
+          res = await fetch("/api/auth/me", {
+            method: "GET",
+            credentials: "include",
+          });
         }
         if (res.ok) {
           const u = await res.json();
@@ -114,7 +124,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = async () => {
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
     } catch (error) {
       console.error("Logout API error:", error);
     } finally {

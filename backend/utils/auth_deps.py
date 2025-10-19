@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request, Cookie
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -8,7 +8,7 @@ from database.database import User, UserRole, get_db
 from utils.jwt_utils import decode_jwt
 from database.user_models import TokenPayload
 
-bearer_scheme = HTTPBearer(auto_error=True)
+bearer_scheme = HTTPBearer(auto_error=False)
 
 def _get_user_from_db(user_id: int, db: Session) -> Optional[User]:
     """DB에서 사용자 조회"""
@@ -20,13 +20,29 @@ def _get_user_roles_from_db(user_id: int, db: Session) -> List[str]:
     return [role.role for role in roles]
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    access_token: Optional[str] = Cookie(None),
     db: Session = Depends(get_db)
 ) -> TokenPayload:
-    """현재 사용자 토큰 페이로드 반환"""
+    """현재 사용자 토큰 페이로드 반환 (헤더 또는 쿠키에서 토큰 가져오기)"""
     
     try:
-        payload = decode_jwt(credentials.credentials, is_refresh=False)
+        # Authorization 헤더에서 토큰 가져오기 시도
+        token = None
+        if credentials:
+            token = credentials.credentials
+        # 쿠키에서 토큰 가져오기 시도
+        elif access_token:
+            token = access_token
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="No access token provided"
+            )
+        
+        payload = decode_jwt(token, is_refresh=False)
         
         if payload.type != "access":
             raise HTTPException(
