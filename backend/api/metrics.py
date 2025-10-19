@@ -67,104 +67,80 @@ async def get_timeseries(request: Request, current_user: dict = Depends(get_curr
 
 
 @router.get("/donut-stats")
-async def get_donut_stats(request: Request, current_user: dict = Depends(get_current_user_with_roles)):
-	try:
-		opensearch_analyzer = request.app.state.opensearch
-		user_id = current_user.get("id")
-		username = current_user.get("username")
-		query = {
-			"query": {"match_all": {}},
-			"size": 0,
-			"aggs": {
-				"trace_groups": {
-					"terms": {"field": "traceID", "size": 10000},
-					"aggs": {
-						"has_sigma_alert": {"terms": {"field": "tag.sigma@alert"}}
-					}
-				}
-			}
-		}
-		query["query"] = {
-			"bool": {
-				"must": [
-					{"bool": {
-						"should": [
-							{"term": {"tag.user_id": str(user_id)}},
-							{"term": {"tag.user_id": username}}
-						]
-					}}
-				]
-			}
-		}
-		response = opensearch_analyzer.client.search(index="jaeger-span-*", body=query)
-		trace_stats = response.get('aggregations', {}).get('trace_groups', {}).get('buckets', [])
-		total_traces = len(trace_stats)
-		anomaly_traces = 0
-		for trace_bucket in trace_stats:
-			has_sigma_alert = len(trace_bucket.get('has_sigma_alert', {}).get('buckets', [])) > 0
-			if has_sigma_alert:
-				anomaly_traces += 1
-		normal_traces = total_traces - anomaly_traces
-		normal_percentage = round((normal_traces / total_traces) * 100, 1) if total_traces > 0 else 0
-		anomaly_percentage = round((anomaly_traces / total_traces) * 100, 1) if total_traces > 0 else 0
-		return {
-			"normalCount": normal_traces,
-			"anomalyCount": anomaly_traces,
-			"total": total_traces,
-			"normalPercentage": normal_percentage,
-			"anomalyPercentage": anomaly_percentage,
-			"processed": total_traces,
-			"failed": 0
-		}
-	except Exception as e:
-		raise HTTPException(status_code=500, detail=str(e))
+async def get_donut_stats_from_mysql(current_user: dict = Depends(get_current_user_with_roles)):
+    try:
+        from database.database import SessionLocal, LLMAnalysis
+        db = SessionLocal()
+        try:
+            uid = str(current_user.get("id")) if current_user.get("id") is not None else None
+            uname = current_user.get("username")
+
+            q = db.query(LLMAnalysis)
+            if uid or uname:
+                from sqlalchemy import or_
+                filters = []
+                if uid:
+                    filters.append(LLMAnalysis.user_id == uid)
+                if uname:
+                    filters.append(LLMAnalysis.user_id == uname)
+                if filters:
+                    q = q.filter(or_(*filters))
+        
+            total = q.count()
+            benign_count = q.filter(LLMAnalysis.prediction == "benign").count()
+            malicious_count = q.filter(LLMAnalysis.prediction == "malicious").count()
+
+            normal_traces = benign_count
+            anomaly_traces = malicious_count
+
+            normal_percentage = round((normal_traces / total) * 100, 1) if total > 0 else 0
+            anomaly_percentage = round((anomaly_traces / total) * 100, 1) if total > 0 else 0
+
+            return {
+                "normalCount": normal_traces,
+                "anomalyCount": anomaly_traces,
+                "total": total,
+                "normalPercentage": normal_percentage,
+                "anomalyPercentage": anomaly_percentage,
+                "processed": total,
+                "failed": 0,
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/trace-stats")
-async def get_trace_stats(request: Request, current_user: dict = Depends(get_current_user_with_roles)):
+async def get_trace_stats(current_user: dict = Depends(get_current_user_with_roles)):
+	from database.database import SessionLocal, LLMAnalysis
+	from sqlalchemy import or_, func
+	db = SessionLocal()
 	try:
-		opensearch_analyzer = request.app.state.opensearch
-		query = {
-			"query": {"match_all": {}},
-			"sort": [{"startTime": {"order": "desc"}}],
-			"size": 0,
-			"aggs": {
-				"trace_groups": {
-					"terms": {"field": "traceID", "size": 10000},
-					"aggs": {
-						"has_sigma_alert": {"terms": {"field": "tag.sigma@alert"}}
-					}
-				}
-			}
-		}
-		user_id = current_user["id"]
-		username = current_user["username"]
-		query["query"] = {
-			"bool": {
-				"must": [
-					{"bool": {
-						"should": [
-							{"term": {"tag.user_id": str(user_id)}},
-							{"term": {"tag.user_id": username}}
-						]
-					}}
-				]
-			}
-		}
-		response = opensearch_analyzer.client.search(index="jaeger-span-*", body=query)
-		trace_stats = response.get('aggregations', {}).get('trace_groups', {}).get('buckets', [])
-		total_traces = len(trace_stats)
-		sigma_traces = 0
-		for trace_bucket in trace_stats:
-			has_sigma_alert = len(trace_bucket.get('has_sigma_alert', {}).get('buckets', [])) > 0
-			if has_sigma_alert:
-				sigma_traces += 1
+		uid = current_user.get("id")
+		uname = current_user.get("username")
+		q = db.query(LLMAnalysis)
+		filters = []
+		if uid is not None:
+			filters.append(LLMAnalysis.user_id == str(uid))
+		if uname:
+			filters.append(LLMAnalysis.user_id == uname)
+		if filters:
+			q = q.filter(or_(*filters))
+
+		total_traces = q.count()
+		malicious_count = q.filter(LLMAnalysis.prediction == "malicious").count()
+		unchecked_count = q.filter(LLMAnalysis.prediction == None).count()
+
 		return {
 			"totalTraces": total_traces,
-			"sigmaMatchedTraces": sigma_traces
+			"sigmaMatchedTraces": malicious_count,
+			"unchecked": unchecked_count,
 		}
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=str(e))
+	finally:
+		db.close()
 
 
 @router.get("/bar-chart")

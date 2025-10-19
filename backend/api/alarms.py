@@ -2,7 +2,7 @@ import os
 import json
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -10,6 +10,25 @@ from pydantic import BaseModel
 from utils.auth_deps import get_current_user_with_roles
 
 router = APIRouter(prefix="/alarms", tags=["alarms"], dependencies=[Depends(get_current_user_with_roles)])
+
+
+def parse_sigma_alert(sigma_alert_value) -> List[str]:
+	"""sigma@alert 값을 파싱하여 sigma_id 리스트 반환"""
+	if not sigma_alert_value:
+		return []
+	
+	try:
+		if isinstance(sigma_alert_value, str) and sigma_alert_value.strip().startswith('['):
+			rule_ids = json.loads(sigma_alert_value)
+			return [str(rid).strip() for rid in rule_ids if rid]
+		elif isinstance(sigma_alert_value, str):
+			return [sigma_alert_value.strip()]
+		elif isinstance(sigma_alert_value, list):
+			return [str(rid).strip() for rid in sigma_alert_value if rid]
+		else:
+			return [str(sigma_alert_value).strip()]
+	except Exception:
+		return [str(sigma_alert_value).strip()]
 
 
 def to_korea_time(utc_timestamp_ms: int) -> str:
@@ -89,15 +108,28 @@ async def get_alarm_meta_batch(payload: TraceIdsPayload, request: Request, curre
 				spans = by_trace.get(tid, [])
 				if not spans:
 					continue
-				operation = spans[0].get("operationName", "")
-				host = spans[0].get("tag", {}).get("User", "-")
-				os_type = spans[0].get("tag", {}).get("Product", "-")
+				
+				operation = ""
+				host = "-"
+				os_type = "-"
+				for s in spans:
+					if not operation:
+						operation = s.get("operationName", "")
+					if host == "-":
+						host = s.get("tag", {}).get("User", "-")
+					if os_type == "-":
+						os_type = s.get("tag", {}).get("Product", "-")
+					if operation and host != "-" and os_type != "-":
+						break
+				
 				unique_rule_ids = set()
 				matched_span_count = 0
 				for s in spans:
 					tag = s.get("tag", {})
-					if tag.get("sigma@alert"):
-						unique_rule_ids.add(str(tag.get("sigma@alert")).strip())
+					sigma_alert = tag.get("sigma@alert")
+					if sigma_alert:
+						for rule_id in parse_sigma_alert(sigma_alert):
+							unique_rule_ids.add(rule_id)
 						matched_span_count += 1
 				severity_scores = []
 				matched_rules = []
@@ -261,15 +293,27 @@ async def get_alarm_traces(request: Request, offset: int = 0, limit: int = 50, c
 					spans = by_trace.get(t, [])
 					if not spans:
 						continue
-					operation = spans[0].get("operationName", "")
-					host = spans[0].get("tag", {}).get("User", "-")
-					os_type = spans[0].get("tag", {}).get("Product", "-")
+					operation = ""
+					host = "-"
+					os_type = "-"
+					for s in spans:
+						if not operation:
+							operation = s.get("operationName", "")
+						if host == "-":
+							host = s.get("tag", {}).get("User", "-")
+						if os_type == "-":
+							os_type = s.get("tag", {}).get("Product", "-")
+						if operation and host != "-" and os_type != "-":
+							break
+					
 					unique_rule_ids = set()
 					matched_span_count = 0
 					for s in spans:
 						tag = s.get("tag", {})
-						if tag.get("sigma@alert"):
-							unique_rule_ids.add(str(tag.get("sigma@alert")).strip())
+						sigma_alert = tag.get("sigma@alert")
+						if sigma_alert:
+							for rule_id in parse_sigma_alert(sigma_alert):
+								unique_rule_ids.add(rule_id)
 							matched_span_count += 1
 					severity_scores = []
 					for sigma_id in unique_rule_ids:
@@ -387,23 +431,65 @@ async def get_alarms_infinite(request: Request, cursor: Optional[str] = None, li
 
 		response = opensearch_analyzer.client.search(index="jaeger-span-*", body=query)
 		alarms = []
-		seen_trace_ids = set()
+		by_trace = {}
 		for span in response['hits']['hits']:
 			src = span['_source']
 			trace_id = src.get("traceID", "")
-			if trace_id in seen_trace_ids:
+			if not trace_id:
 				continue
-			seen_trace_ids.add(trace_id)
-			tag = src.get('tag', {})
+			by_trace.setdefault(trace_id, []).append(src)
+		
+		for trace_id, spans in by_trace.items():
+			operation = ""
+			host = "-"
+			os_type = "-"
+			detected_at = 0
+			
+			for s in spans:
+				if not operation:
+					operation = s.get("operationName", "")
+				if host == "-":
+					host = s.get("tag", {}).get("User", "-")
+				if os_type == "-":
+					os_type = s.get("tag", {}).get("Product", "-")
+				if detected_at == 0:
+					detected_at = s.get("startTimeMillis", 0)
+				if operation and host != "-" and os_type != "-" and detected_at:
+					break
+			
 			alarms.append({
 				"trace_id": trace_id,
-				"detected_at": to_korea_time(src.get("startTimeMillis", 0)),
-				"summary": src.get("operationName") or "-",
-				"host": tag.get("User", "-"),
-				"os": tag.get("Product", "-"),
+				"detected_at": to_korea_time(detected_at),
+				"summary": operation or "-",
+				"host": host,
+				"os": os_type,
 				"checked": False,
 				"user_id": user_id
 			})
+		
+		try:
+			from database.database import SessionLocal, LLMAnalysis
+			db = SessionLocal()
+			try:
+				trace_ids = [alarm["trace_id"] for alarm in alarms]
+				llm_data = db.query(LLMAnalysis).filter(LLMAnalysis.trace_id.in_(trace_ids)).all()
+				llm_map = {item.trace_id: item for item in llm_data}
+				
+				for alarm in alarms:
+					llm_info = llm_map.get(alarm["trace_id"])
+					if llm_info:
+						if llm_info.score is not None:
+							alarm["ai_score"] = llm_info.score
+						if llm_info.prediction:
+							alarm["ai_decision"] = llm_info.prediction
+						if llm_info.summary:
+							alarm["ai_summary"] = llm_info.summary
+						alarm["checked"] = llm_info.checked
+			finally:
+				db.close()
+		except Exception:
+			pass
+		
 		return {
 			"alarms": alarms[:limit],
 			"hasMore": len(alarms) > limit,
@@ -445,19 +531,21 @@ async def get_alarms_severity(request: Request, current_user: dict = Depends(get
 		for hit in spans_data['hits']['hits']:
 			source = hit['_source']
 			tag = source.get('tag', {})
-			sigma_alert_id = tag.get('sigma@alert')
-			if sigma_alert_id:
-				rule_info = mongo_collection.find_one({"sigma_id": sigma_alert_id})
-				if rule_info:
-					level = rule_info.get('level', 'medium')
-					severity_score = rule_info.get('severity_score', 60)
-					title = rule_info.get('title', 'Unknown Rule')
-					severity_data[sigma_alert_id] = {
-						"level": level,
-						"severity_score": severity_score,
-						"title": title,
-						"sigma_id": sigma_alert_id
-					}
+			sigma_alert = tag.get('sigma@alert')
+			if sigma_alert:
+				for sigma_alert_id in parse_sigma_alert(sigma_alert):
+					if sigma_alert_id not in severity_data:
+						rule_info = mongo_collection.find_one({"sigma_id": sigma_alert_id})
+						if rule_info:
+							level = rule_info.get('level', 'medium')
+							severity_score = rule_info.get('severity_score', 60)
+							title = rule_info.get('title', 'Unknown Rule')
+							severity_data[sigma_alert_id] = {
+								"level": level,
+								"severity_score": severity_score,
+								"title": title,
+								"sigma_id": sigma_alert_id
+							}
 		return {"severity_data": severity_data, "total_alerts": len(severity_data)}
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=str(e))
@@ -498,31 +586,36 @@ async def get_trace_severity(trace_id: str, request: Request, current_user: dict
 			}
 		severity_scores = []
 		matched_rules = []
+		processed_rule_ids = set()
 		for span in response['hits']['hits']:
 			src = span['_source']
 			tag = src.get('tag', {})
 			sigma_alert = tag.get('sigma@alert', '')
 			if sigma_alert:
-				rule_info = mongo_collection.find_one({"sigma_id": sigma_alert}) if (mongo_collection is not None) else None
-				if rule_info:
-					severity_score = rule_info.get('severity_score', 30)
-					level = rule_info.get('level', 'low')
-					title = rule_info.get('title', '')
-					severity_scores.append(severity_score)
-					matched_rules.append({
-						"sigma_id": sigma_alert,
-						"level": level,
-						"severity_score": severity_score,
-						"title": title
-					})
-				else:
-					severity_scores.append(90)
-					matched_rules.append({
-						"sigma_id": sigma_alert,
-						"level": "high",
-						"severity_score": 90,
-						"title": sigma_alert
-					})
+				for rule_id in parse_sigma_alert(sigma_alert):
+					if rule_id in processed_rule_ids:
+						continue
+					processed_rule_ids.add(rule_id)
+					rule_info = mongo_collection.find_one({"sigma_id": rule_id}) if (mongo_collection is not None) else None
+					if rule_info:
+						severity_score = rule_info.get('severity_score', 30)
+						level = rule_info.get('level', 'low')
+						title = rule_info.get('title', '')
+						severity_scores.append(severity_score)
+						matched_rules.append({
+							"sigma_id": rule_id,
+							"level": level,
+							"severity_score": severity_score,
+							"title": title
+						})
+					else:
+						severity_scores.append(90)
+						matched_rules.append({
+							"sigma_id": rule_id,
+							"level": "high",
+							"severity_score": 90,
+							"title": rule_id
+						})
 		if severity_scores:
 			avg_severity_score = sum(severity_scores) / len(severity_scores)
 		else:
@@ -549,20 +642,26 @@ async def get_trace_severity(trace_id: str, request: Request, current_user: dict
 
 
 @router.post("/check")
-async def update_alarm_status(payload: AlarmStatusUpdate):
+async def update_alarm_status(payload: AlarmStatusUpdate, current_user: dict = Depends(get_current_user_with_roles)):
 	try:
-		status_file = "alarm_status.json"
-		alarm_status = {}
-		if os.path.exists(status_file):
-			try:
-				with open(status_file, 'r', encoding='utf-8') as f:
-					alarm_status = json.load(f)
-			except:
-				alarm_status = {}
-		alarm_status[payload.trace_id] = payload.checked
-		with open(status_file, 'w', encoding='utf-8') as f:
-			json.dump(alarm_status, f, ensure_ascii=False, indent=2)
-		return {"success": True, "message": "알림 상태가 업데이트되었습니다."}
+		from database.database import SessionLocal, LLMAnalysis
+		db = SessionLocal()
+		try:
+			llm_record = db.query(LLMAnalysis).filter(LLMAnalysis.trace_id == payload.trace_id).first()
+			
+			if llm_record:
+				llm_record.checked = payload.checked
+			else:
+				llm_record = LLMAnalysis(
+					trace_id=payload.trace_id,
+					checked=payload.checked
+				)
+				db.add(llm_record)
+			
+			db.commit()
+			return {"success": True, "message": "알림 상태가 업데이트되었습니다."}
+		finally:
+			db.close()
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=str(e))
 
@@ -631,15 +730,6 @@ async def warm_cache(request: Request, limit: int = 200, current_user: dict = De
 			for i in range(0, len(lst), n):
 				yield lst[i:i+n]
 
-		status_file = "alarm_status.json"
-		checked_map = {}
-		if os.path.exists(status_file):
-			try:
-				with open(status_file, 'r', encoding='utf-8') as f:
-					checked_map = json.load(f) or {}
-			except:
-				checked_map = {}
-
 		warmed = 0
 		for batch in chunk(miss_ids, 500):
 			if not batch:
@@ -673,15 +763,28 @@ async def warm_cache(request: Request, limit: int = 200, current_user: dict = De
 				spans = by_trace.get(tid, [])
 				if not spans:
 					continue
-				operation = spans[0].get("operationName", "")
-				host = spans[0].get("tag", {}).get("User", "-")
-				os_type = spans[0].get("tag", {}).get("Product", "-")
+				
+				operation = ""
+				host = "-"
+				os_type = "-"
+				for s in spans:
+					if not operation:
+						operation = s.get("operationName", "")
+					if host == "-":
+						host = s.get("tag", {}).get("User", "-")
+					if os_type == "-":
+						os_type = s.get("tag", {}).get("Product", "-")
+					if operation and host != "-" and os_type != "-":
+						break
+				
 				unique_rule_ids = set()
 				matched_span_count = 0
 				for s in spans:
 					tag = s.get("tag", {})
-					if tag.get("sigma@alert"):
-						unique_rule_ids.add(str(tag.get("sigma@alert")).strip())
+					sigma_alert = tag.get("sigma@alert")
+					if sigma_alert:
+						for rule_id in parse_sigma_alert(sigma_alert):
+							unique_rule_ids.add(rule_id)
 						matched_span_count += 1
 
 				severity_scores = []
@@ -744,7 +847,7 @@ async def warm_cache(request: Request, limit: int = 200, current_user: dict = De
 					"summary": operation or "-",
 					"host": host or "-",
 					"os": os_type or "-",
-					"checked": bool(checked_map.get(tid, False)),
+					"checked": False,
 					"matched_span_count": matched_span_count,
 					"matched_rule_unique_count": len(unique_rule_ids),
 					"severity": severity,
@@ -768,6 +871,28 @@ async def warm_cache(request: Request, limit: int = 200, current_user: dict = De
 						if card["matched_rule_unique_count"] < prev_unique:
 							card["matched_rule_unique_count"] = prev_unique
 				except Exception:
+					pass
+
+				try:
+					from database.database import SessionLocal, LLMAnalysis
+					db = SessionLocal()
+					try:
+						llm_data = db.query(LLMAnalysis).filter(LLMAnalysis.trace_id == tid).first()
+						if llm_data:
+							card["ai_summary"] = llm_data.summary
+							card["ai_long_summary"] = llm_data.long_summary
+							card["ai_mitigation"] = llm_data.mitigation_suggestions
+							card["ai_score"] = llm_data.score
+							card["ai_decision"] = llm_data.prediction
+							card["checked"] = llm_data.checked  # MySQL에서 checked 상태 가져오기
+							if llm_data.similar_trace_ids:
+								try:
+									card["ai_similar_traces"] = json.loads(llm_data.similar_trace_ids)
+								except:
+									card["ai_similar_traces"] = []
+					finally:
+						db.close()
+				except Exception as e:
 					pass
 
 				try:

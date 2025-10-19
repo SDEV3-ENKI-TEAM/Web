@@ -2,7 +2,7 @@ export interface Event {
   id: number;
   timestamp: string;
   user: string;
-  label: "Normal" | "Anomaly";
+  label: "Normal" | "Anomaly" | "Pending";
   event: string;
   host?: string;
   os?: string;
@@ -28,8 +28,9 @@ export interface EventDetail {
   host?: string;
   os?: string;
   event?: string;
-  label?: string;
+  label?: "Normal" | "Anomaly" | "Pending";
   duration?: number;
+  ai_summary?: string;
   details?: {
     process_id: string;
     parent_process_id: string;
@@ -45,4 +46,5 @@ export interface Stats {
   anomalies: number;
   avgAnomaly: number;
   highestScore: number;
+  uncheckedCount?: number;
 }

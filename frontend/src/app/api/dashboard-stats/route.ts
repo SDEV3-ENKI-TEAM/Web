@@ -9,9 +9,10 @@ export async function GET(request: Request) {
     const data = await resp.json();
     const mapped = {
       totalEvents: data.totalTraces ?? 0,
-      anomalies: data.sigmaMatchedTraces ?? 0,
+      anomalies: data.unchecked ?? 0,
       avgAnomaly: 0,
       highestScore: 0,
+      uncheckedCount: data.unchecked ?? 0,
     };
     return new Response(JSON.stringify(mapped), {
       status: 200,

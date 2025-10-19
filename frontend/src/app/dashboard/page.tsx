@@ -34,6 +34,7 @@ export default function Dashboard() {
     anomalies: 0,
     avgAnomaly: 0,
     highestScore: 0,
+    uncheckedCount: 0,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -176,6 +177,7 @@ export default function Dashboard() {
         event: event.event,
         label: event.label,
         duration: event.duration,
+        ai_summary: event.ai_summary,
         details: {
           process_id: "",
           parent_process_id: "",
@@ -258,9 +260,9 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
-          <div className="text-slate-400 text-xs mb-2">주요 수</div>
+          <div className="text-slate-400 text-xs mb-2">미확인 수</div>
           <div className="text-3xl font-bold text-red-400 mb-1">
-            {stats.anomalies}
+            {stats.uncheckedCount}
           </div>
         </div>
       </div>
@@ -298,8 +300,13 @@ export default function Dashboard() {
             user: alarm.host,
             host: alarm.host,
             os: alarm.os,
-            label: "Anomaly",
+            label: !alarm.ai_decision
+              ? "Pending"
+              : alarm.ai_decision === "benign"
+              ? "Normal"
+              : "Anomaly",
             event: alarm.summary,
+            ai_summary: alarm.ai_summary,
           }))}
           onEventSelect={handleEventClick}
           onLoadMore={loadMoreAlarms}

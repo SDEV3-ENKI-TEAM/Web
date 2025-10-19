@@ -92,14 +92,6 @@ export default function EventDetail({
                     </span>
                   </div>
                 )}
-                {event.event && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-400 text-sm">이벤트:</span>
-                    <span className="text-slate-300 text-sm font-mono">
-                      {event.event}
-                    </span>
-                  </div>
-                )}
                 {event.label && (
                   <div className="flex justify-between">
                     <span className="text-slate-400 text-sm">상태:</span>
@@ -107,10 +99,16 @@ export default function EventDetail({
                       className={`text-sm font-mono px-2 py-1 rounded ${
                         event.label === "Anomaly"
                           ? "bg-red-500/20 text-red-300 border border-red-500/30"
+                          : event.label === "Pending"
+                          ? "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30"
                           : "bg-green-500/20 text-green-300 border border-green-500/30"
                       }`}
                     >
-                      {event.label === "Anomaly" ? "위험" : "정상"}
+                      {event.label === "Anomaly"
+                        ? "위험"
+                        : event.label === "Pending"
+                        ? "미확인"
+                        : "정상"}
                     </span>
                   </div>
                 )}
@@ -125,51 +123,7 @@ export default function EventDetail({
             </div>
             <div className="bg-slate-800/30 border border-slate-700/50 rounded-lg p-3">
               <div className="text-slate-300 text-sm font-mono leading-relaxed">
-                {event.incident}
-              </div>
-            </div>
-          </div>
-
-          {/* Raw Data Section */}
-          <div className="no-drag">
-            <div className="text-slate-400 text-xs uppercase tracking-wide mb-2">
-              원본 이벤트 데이터
-            </div>
-            <div className="bg-slate-800/30 border border-slate-700/50 rounded-lg">
-              <div className="max-h-60 overflow-y-auto p-3 custom-scrollbar">
-                <div className="space-y-2">
-                  {event.rowData &&
-                    Object.entries(event.rowData).map(([key, value], index) => (
-                      <div key={key} className="flex flex-col sm:flex-row">
-                        <div className="text-cyan-400 font-mono text-xs font-semibold min-w-0 sm:w-1/3 mb-1 sm:mb-0">
-                          {key === "ip_address"
-                            ? "IP 주소"
-                            : key === "user"
-                            ? "사용자"
-                            : key === "number"
-                            ? "번호"
-                            : key === "location"
-                            ? "위치"
-                            : key === "timestamp"
-                            ? "발생시간"
-                            : key === "event_type"
-                            ? "이벤트 유형"
-                            : key === "status"
-                            ? "상태"
-                            : key}
-                          :
-                        </div>
-                        <div className="text-slate-300 font-mono text-xs break-all sm:w-2/3">
-                          "{value}"
-                        </div>
-                      </div>
-                    ))}
-                  {!event.rowData && (
-                    <div className="text-slate-500 text-sm text-center py-4">
-                      원본 데이터가 없습니다
-                    </div>
-                  )}
-                </div>
+                {event.ai_summary || "AI 추론중..."}
               </div>
             </div>
           </div>

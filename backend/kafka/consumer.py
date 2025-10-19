@@ -2,12 +2,32 @@ import json
 import logging
 import time
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 import re
+import sys
+import os
+from pathlib import Path
 
 import redis
 from kafka import KafkaConsumer
 from pymongo import MongoClient
+from dotenv import load_dotenv
+
+# .env 파일 로드
+try:
+    env_path = Path(__file__).resolve().parent.parent / '.env'
+    load_dotenv(env_path, encoding='utf-8')
+except Exception as e:
+    print(f".env 파일 로드 중 오류: {e}")
+    try:
+        load_dotenv(env_path, encoding='cp949')
+    except Exception as e2:
+        print(f"cp949 인코딩도 실패: {e2}")
+        load_dotenv()
+
+# database 모듈 임포트를 위한 경로 추가
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from database.database import SessionLocal, LLMAnalysis
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -22,23 +42,24 @@ class TraceConsumer:
 
     def __init__(
         self,
-        kafka_broker: str = "localhost:9092",
-        kafka_topic: str = "traces",
-        valkey_host: str = "localhost",
-        valkey_port: int = 6379,
-        valkey_db: int = 0,
-        mongo_uri: str = "mongodb://localhost:27017",
-        mongo_db: str = "security",
-        mongo_collection: str = "rules",
+        kafka_broker: str = None,
+        kafka_topic: str = None,
+        valkey_host: str = None,
+        valkey_port: int = None,
+        valkey_db: int = None,
+        mongo_uri: str = None,
+        mongo_db: str = None,
+        mongo_collection: str = None,
     ):
-        self.kafka_broker = kafka_broker
-        self.kafka_topic = kafka_topic
-        self.valkey_host = valkey_host
-        self.valkey_port = valkey_port
-        self.valkey_db = valkey_db
-        self.mongo_uri = mongo_uri
-        self.mongo_db = mongo_db
-        self.mongo_collection = mongo_collection
+        # 환경 변수에서 값 가져오기 (인자로 전달된 값이 없으면)
+        self.kafka_broker = kafka_broker or os.getenv("KAFKA_BROKER", "localhost:9092")
+        self.kafka_topic = kafka_topic or os.getenv("KAFKA_TOPIC", "traces")
+        self.valkey_host = valkey_host or os.getenv("VALKEY_HOST", "localhost")
+        self.valkey_port = valkey_port or int(os.getenv("VALKEY_PORT", "6379"))
+        self.valkey_db = valkey_db if valkey_db is not None else int(os.getenv("VALKEY_DB", "0"))
+        self.mongo_uri = mongo_uri or os.getenv("MONGO_URI", "mongodb://localhost:27017")
+        self.mongo_db = mongo_db or os.getenv("MONGO_DB", "security")
+        self.mongo_collection = mongo_collection or os.getenv("MONGO_COLLECTION", "rules")
 
         self.consumer = None
         self.valkey_client = None
@@ -57,10 +78,10 @@ class TraceConsumer:
                 value_deserializer=lambda m: m,  # raw bytes, 토픽별로 파싱
                 consumer_timeout_ms=1000,
             )
-            # traces + ai-result-topic 동시 구독
-            self.consumer.subscribe([self.kafka_topic, "ai-result-topic"])
+            # traces + ai-result-topic + llm_result 동시 구독
+            self.consumer.subscribe([self.kafka_topic, "ai-result-topic", "llm_result"])
             logger.info(
-                f"Kafka Consumer 초기화 완료: {self.kafka_broker} -> subscribe {[self.kafka_topic, 'ai-result-topic']}"
+                f"Kafka Consumer 초기화 완료: {self.kafka_broker} -> subscribe {[self.kafka_topic, 'ai-result-topic', 'llm_result']}"
             )
             return True
         except Exception as e:
@@ -184,13 +205,29 @@ class TraceConsumer:
                         pending = json.loads(pending_raw)
                     except Exception:
                         pending = {}
+                    
+                    # 모든 AI 관련 필드 병합
                     pending_reason = pending.get("reason")
                     pending_decision = pending.get("decision")
+                    pending_long_summary = pending.get("long_summary")
+                    pending_score = pending.get("score")
+                    pending_mitigation = pending.get("mitigation_suggestions")
+                    pending_similar = pending.get("similar_trace_ids")
+                    
                     if pending_reason:
                         alarm_card["ai_summary"] = pending_reason
                         alarm_card["has_ai"] = True
                     if pending_decision:
                         alarm_card["ai_decision"] = pending_decision
+                    if pending_long_summary:
+                        alarm_card["ai_long_summary"] = pending_long_summary
+                    if pending_score:
+                        alarm_card["ai_score"] = pending_score
+                    if pending_mitigation:
+                        alarm_card["ai_mitigation"] = pending_mitigation
+                    if pending_similar:
+                        alarm_card["ai_similar_traces"] = pending_similar
+                    
                     try:
                         self.valkey_client.delete(pending_key)
                     except Exception:
@@ -520,8 +557,8 @@ class TraceConsumer:
             logger.error(f"시간 변환 실패: {e}")
             return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
-    def process_ai_result(self, raw_value: Any) -> bool:
-        """ai-result-topic 메시지에서 최종 reason을 추출해 ai_summary로 병합 저장 (traces 선행 보장)"""
+    def process_ai_result(self, raw_value: Any, message_key: Optional[bytes] = None) -> bool:
+        """ai-result-topic 또는 llm_result 메시지에서 요약(reason)을 추출해 ai_summary로 병합 저장 (traces 선행 보장)"""
         try:
             payload: str
             if isinstance(raw_value, (bytes, bytearray)):
@@ -532,14 +569,63 @@ class TraceConsumer:
             trace_id: str = ""
             reason: str = ""
             decision: str = ""
+            long_summary: str = ""
+            score: float = 0.0
+            mitigation_suggestions: str = ""
+            similar_trace_ids: list = []
 
             # 1) JSON 포맷 우선 시도
             try:
                 obj = json.loads(payload)
                 if isinstance(obj, dict):
-                    trace_id = str(obj.get("trace_id", ""))
-                    reason = str(obj.get("reason", ""))
-                    decision = str(obj.get("decision", ""))
+                    # 다양한 키 대응: trace_id | traceID | traceId
+                    _trace_id = obj.get("trace_id") or obj.get("traceID") or obj.get("traceId")
+                    trace_id = str(_trace_id) if _trace_id is not None and _trace_id != "null" and _trace_id else ""
+                    
+                    # traceID가 없으면 Kafka message key에서 시도
+                    if not trace_id and message_key:
+                        try:
+                            key_str = message_key.decode("utf-8") if isinstance(message_key, bytes) else str(message_key)
+                            if key_str and key_str != "None":
+                                trace_id = key_str
+                                logger.info(f"Kafka 메시지 key에서 traceID 추출: {trace_id}")
+                        except Exception:
+                            pass
+
+                    # reason | summary.summary | summary(문자열)
+                    _reason = obj.get("reason")
+                    if not _reason:
+                        _summary_field = obj.get("summary")
+                        if isinstance(_summary_field, dict):
+                            _reason = _summary_field.get("summary")
+                        elif isinstance(_summary_field, str):
+                            _reason = _summary_field
+                    reason = str(_reason) if _reason is not None else ""
+
+                    # decision | prediction
+                    _decision = obj.get("decision") or obj.get("prediction")
+                    decision = str(_decision) if _decision is not None else ""
+
+                    # long_summary 보조 정보 (있으면 카드에 저장)
+                    _long = obj.get("long_summary")
+                    long_summary = str(_long) if _long is not None else ""
+                    
+                    # score (LLM 신뢰도 점수)
+                    _score = obj.get("score")
+                    if _score is not None:
+                        try:
+                            score = float(_score)
+                        except (ValueError, TypeError):
+                            score = 0.0
+                    
+                    # mitigation_suggestions (대응 방안)
+                    _mitigation = obj.get("mitigation_suggestions")
+                    mitigation_suggestions = str(_mitigation) if _mitigation is not None else ""
+                    
+                    # similar_trace_ids (유사 트레이스)
+                    _similar = obj.get("similar_trace_ids")
+                    if isinstance(_similar, list):
+                        similar_trace_ids = _similar
             except Exception:
                 obj = None
 
@@ -556,12 +642,12 @@ class TraceConsumer:
                     reason = m2.group(1)
 
             if not trace_id:
-                logger.warning("AI 결과에서 trace_id를 찾지 못함")
+                logger.warning(f"AI 결과에서 trace_id를 찾지 못함. 데이터: {payload[:200]}")
                 return False
 
             if not reason:
                 logger.info(f"AI 결과에 reason이 비어있음: {trace_id}")
-                return False
+                # reason이 없어도 다른 정보가 있으면 계속 진행
 
             trace_key = f"trace:{trace_id}"
             existing = self.valkey_client.get(trace_key)
@@ -569,9 +655,19 @@ class TraceConsumer:
             if not existing:
                 # 카드가 아직 없으면 보류 저장(pending_ai)만 하고 종료
                 pending_key = f"pending_ai:{trace_id}"
-                pending_obj = {"reason": reason}
+                pending_obj = {}
+                if reason:
+                    pending_obj["reason"] = reason
                 if decision:
                     pending_obj["decision"] = decision
+                if long_summary:
+                    pending_obj["long_summary"] = long_summary
+                if score > 0:
+                    pending_obj["score"] = score
+                if mitigation_suggestions:
+                    pending_obj["mitigation_suggestions"] = mitigation_suggestions
+                if similar_trace_ids:
+                    pending_obj["similar_trace_ids"] = similar_trace_ids
                 try:
                     self.valkey_client.set(pending_key, json.dumps(pending_obj, ensure_ascii=False))
                     self.valkey_client.expire(pending_key, 600)
@@ -588,10 +684,20 @@ class TraceConsumer:
             except Exception:
                 card = {}
 
-            card["ai_summary"] = reason
+            # AI 분석 결과 병합
+            if reason:
+                card["ai_summary"] = reason
             if decision:
                 card["ai_decision"] = decision
             card["has_ai"] = True
+            if long_summary:
+                card["ai_long_summary"] = long_summary
+            if score > 0:
+                card["ai_score"] = score
+            if mitigation_suggestions:
+                card["ai_mitigation"] = mitigation_suggestions
+            if similar_trace_ids:
+                card["ai_similar_traces"] = similar_trace_ids
 
             self.valkey_client.set(trace_key, json.dumps(card, ensure_ascii=False))
             self.valkey_client.expire(trace_key, 86400)
@@ -600,17 +706,98 @@ class TraceConsumer:
             event_data = {
                 "type": "ai_update",
                 "trace_id": trace_id,
-                "data": {"ai_summary": reason, "user_id": str(card.get("user_id", "default_user")), "username": str(card.get("user_id", "default_user"))},
+                "data": {
+                    "ai_summary": reason if reason else None,
+                    "ai_decision": decision if decision else None,
+                    "ai_score": score if score > 0 else None,
+                    "ai_long_summary": long_summary if long_summary else None,
+                    "ai_mitigation": mitigation_suggestions if mitigation_suggestions else None,
+                    "ai_similar_traces": similar_trace_ids if similar_trace_ids else None,
+                    "user_id": str(card.get("user_id", "default_user")),
+                    "username": str(card.get("user_id", "default_user"))
+                },
                 "timestamp": int(time.time() * 1000),
             }
             self.valkey_client.lpush(event_key, json.dumps(event_data, ensure_ascii=False))
             self.valkey_client.ltrim(event_key, 0, 999)
+
+            try:
+                self._save_to_mysql(
+                    trace_id=trace_id,
+                    user_id=card.get("user_id"),
+                    summary=reason,
+                    long_summary=long_summary,
+                    mitigation_suggestions=mitigation_suggestions,
+                    score=score,
+                    prediction=decision,
+                    similar_trace_ids=similar_trace_ids
+                )
+            except Exception as mysql_error:
+                logger.warning(f"MySQL 저장 실패 (계속 진행): {mysql_error}")
 
             logger.info(f"AI 요약 저장 완료: {trace_id} (existing)")
             return True
         except Exception as e:
             logger.error(f"AI 결과 처리 실패: {e}")
             return False
+    
+    def _save_to_mysql(
+        self,
+        trace_id: str,
+        user_id: str = None,
+        summary: str = None,
+        long_summary: str = None,
+        mitigation_suggestions: str = None,
+        score: float = None,
+        prediction: str = None,
+        similar_trace_ids: list = None
+    ):
+        """LLM 분석 결과를 MySQL에 저장"""
+        db = SessionLocal()
+        try:
+            # 기존 레코드 확인
+            existing = db.query(LLMAnalysis).filter(LLMAnalysis.trace_id == trace_id).first()
+            
+            if existing:
+                # 업데이트
+                if user_id is not None:
+                    existing.user_id = str(user_id)
+                if summary:
+                    existing.summary = summary
+                if long_summary:
+                    existing.long_summary = long_summary
+                if mitigation_suggestions:
+                    existing.mitigation_suggestions = mitigation_suggestions
+                if score is not None:
+                    existing.score = score
+                if prediction:
+                    existing.prediction = prediction
+                if similar_trace_ids:
+                    existing.similar_trace_ids = json.dumps(similar_trace_ids, ensure_ascii=False)
+                
+                db.commit()
+                logger.info(f"MySQL 업데이트 완료: {trace_id}")
+            else:
+                # 새로 생성
+                new_analysis = LLMAnalysis(
+                    trace_id=trace_id,
+                    user_id=str(user_id) if user_id is not None else None,
+                    summary=summary,
+                    long_summary=long_summary,
+                    mitigation_suggestions=mitigation_suggestions,
+                    score=score,
+                    prediction=prediction,
+                    similar_trace_ids=json.dumps(similar_trace_ids, ensure_ascii=False) if similar_trace_ids else None
+                )
+                db.add(new_analysis)
+                db.commit()
+                logger.info(f"MySQL 저장 완료: {trace_id}")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"MySQL 저장 실패: {e}")
+            raise
+        finally:
+            db.close()
 
     def run(self):
         """Consumer 실행"""
@@ -641,8 +828,10 @@ class TraceConsumer:
                                 topic = getattr(message, 'topic', '')
                                 raw_value = message.value
 
-                                if topic == "ai-result-topic":
-                                    if self.process_ai_result(raw_value):
+                                if topic in ("ai-result-topic", "llm_result"):
+                                    # Kafka 메시지 key에서 traceID 추출 시도
+                                    message_key = getattr(message, 'key', None)
+                                    if self.process_ai_result(raw_value, message_key):
                                         logger.info("AI 결과 처리 완료")
                                     else:
                                         logger.warning("AI 결과 처리 실패")
@@ -679,28 +868,18 @@ class TraceConsumer:
 
 
 def main():
-    """메인 함수"""
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Kafka Trace Consumer")
-    parser.add_argument(
-        "--kafka-broker", default="localhost:9092", help="Kafka 브로커 주소"
-    )
-    parser.add_argument("--kafka-topic", default="traces", help="Kafka 토픽명")
-    parser.add_argument("--valkey-host", default="localhost", help="Valkey 호스트")
-    parser.add_argument("--valkey-port", type=int, default=6379, help="Valkey 포트")
-    parser.add_argument("--valkey-db", type=int, default=0, help="Valkey 데이터베이스")
-
-    args = parser.parse_args()
-
-    consumer = TraceConsumer(
-        kafka_broker=args.kafka_broker,
-        kafka_topic=args.kafka_topic,
-        valkey_host=args.valkey_host,
-        valkey_port=args.valkey_port,
-        valkey_db=args.valkey_db,
-    )
-
+    """메인 함수 - 환경 변수(.env)에서 설정을 자동으로 읽어옵니다"""
+    logger.info("Trace Consumer 시작 - 환경 변수에서 설정 로드")
+    
+    # 환경 변수로부터 자동으로 설정을 가져옵니다
+    consumer = TraceConsumer()
+    
+    # 현재 설정 출력
+    logger.info(f"Kafka Broker: {consumer.kafka_broker}")
+    logger.info(f"Kafka Topic: {consumer.kafka_topic}")
+    logger.info(f"Valkey: {consumer.valkey_host}:{consumer.valkey_port}/{consumer.valkey_db}")
+    logger.info(f"MongoDB: {consumer.mongo_uri}")
+    
     consumer.run()
 
 

@@ -3,7 +3,7 @@ from typing import Generator
 from pathlib import Path
 
 from dotenv import load_dotenv
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, create_engine, func
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, Text, create_engine, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -87,4 +87,21 @@ class SlackSettings(Base):
 	webhook_url_enc = Column(Text, nullable=False)
 	channel = Column(String(100), nullable=True)
 	enabled = Column(Boolean, default=False, nullable=False)
+	updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+class LLMAnalysis(Base):
+	"""LLM 분석 결과 모델"""
+	__tablename__ = "llm_analysis"
+	
+	id = Column(Integer, primary_key=True, index=True)
+	trace_id = Column(String(255), unique=True, index=True, nullable=False)
+	user_id = Column(String(255), index=True, nullable=True)
+	summary = Column(Text, nullable=True)
+	long_summary = Column(Text, nullable=True)
+	mitigation_suggestions = Column(Text, nullable=True)
+	score = Column(Float, nullable=True)
+	prediction = Column(String(50), nullable=True)
+	similar_trace_ids = Column(Text, nullable=True)
+	checked = Column(Boolean, default=False, nullable=False)
+	created_at = Column(DateTime(timezone=True), server_default=func.now())
 	updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now()) 

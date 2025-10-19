@@ -21,6 +21,8 @@ interface Alarm {
   severity_score?: number;
   sigma_rule_title?: string;
   isUpdated?: boolean;
+  ai_score?: number;
+  ai_decision?: string;
 }
 
 function timeAgo(dateNum: number) {
@@ -55,6 +57,7 @@ export default function AlarmsPage() {
   const { logout } = useAuth();
 
   const [severityFilters, setSeverityFilters] = useState<string[]>([]);
+  const [aiDecisionFilter, setAiDecisionFilter] = useState("all");
   const [dateRange, setDateRange] = useState({
     startDate: "",
     endDate: "",
@@ -106,7 +109,13 @@ export default function AlarmsPage() {
         severityFilters.length === 0 ||
         severityFilters.includes(alarm.severity || "low");
 
-      return matchSearch && matchStatus && matchSeverity;
+      const matchAiDecision =
+        aiDecisionFilter === "all" ||
+        (aiDecisionFilter === "malicious" &&
+          alarm.ai_decision === "malicious") ||
+        (aiDecisionFilter === "benign" && alarm.ai_decision === "benign");
+
+      return matchSearch && matchStatus && matchSeverity && matchAiDecision;
     })
   );
 
@@ -138,6 +147,7 @@ export default function AlarmsPage() {
     setSearch("");
     setStatusFilter("all");
     setSeverityFilters([]);
+    setAiDecisionFilter("all");
     setDateRange({ startDate: "", endDate: "" });
   };
 
@@ -304,6 +314,24 @@ export default function AlarmsPage() {
                             >
                               {alarm.severity || "low"}
                             </span>
+                            {alarm.ai_score !== undefined && (
+                              <span className="px-3 py-1 rounded-full border text-xs font-medium bg-blue-500/10 text-blue-400 border-blue-500/30">
+                                {(alarm.ai_score * 100).toFixed(1)}%
+                              </span>
+                            )}
+                            {alarm.ai_decision && (
+                              <span
+                                className={`px-3 py-1 rounded-full border text-xs font-medium ${
+                                  alarm.ai_decision === "malicious"
+                                    ? "bg-red-600/10 text-red-300 border-red-600/30"
+                                    : "bg-green-500/10 text-green-400 border-green-500/30"
+                                }`}
+                              >
+                                {alarm.ai_decision === "malicious"
+                                  ? "악성"
+                                  : "정상"}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <span className="text-xs text-slate-400 font-mono">
@@ -456,6 +484,37 @@ export default function AlarmsPage() {
                         />
                         <span className="text-sm text-slate-300">
                           {status.label}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* AI 판정 필터 */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-3">
+                    AI 판정
+                  </label>
+                  <div className="space-y-2">
+                    {[
+                      { value: "all", label: "전체" },
+                      { value: "malicious", label: "악성" },
+                      { value: "benign", label: "정상" },
+                    ].map((decision) => (
+                      <label
+                        key={decision.value}
+                        className="flex items-center gap-2 cursor-pointer"
+                      >
+                        <input
+                          type="radio"
+                          name="aiDecisionFilter"
+                          value={decision.value}
+                          checked={aiDecisionFilter === decision.value}
+                          onChange={(e) => setAiDecisionFilter(e.target.value)}
+                          className="w-4 h-4 text-blue-600 bg-slate-800 border-slate-600 focus:ring-blue-500 focus:ring-2"
+                        />
+                        <span className="text-sm text-slate-300">
+                          {decision.label}
                         </span>
                       </label>
                     ))}

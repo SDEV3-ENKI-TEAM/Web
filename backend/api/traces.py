@@ -93,6 +93,30 @@ async def search_trace_by_id(
 			"severity": "high" if has_any_alert else "low",
 		}
 
+		# MySQL에서 LLM 분석 결과 가져오기
+		try:
+			from database.database import SessionLocal, LLMAnalysis
+			db = SessionLocal()
+			try:
+				llm_data = db.query(LLMAnalysis).filter(LLMAnalysis.trace_id == trace_id).first()
+				if llm_data:
+					trace_data["ai_summary"] = llm_data.summary
+					trace_data["ai_long_summary"] = llm_data.long_summary
+					trace_data["ai_mitigation"] = llm_data.mitigation_suggestions
+					trace_data["ai_score"] = llm_data.score
+					trace_data["ai_decision"] = llm_data.prediction
+					trace_data["checked"] = llm_data.checked
+					if llm_data.similar_trace_ids:
+						try:
+							import json
+							trace_data["ai_similar_traces"] = json.loads(llm_data.similar_trace_ids)
+						except:
+							trace_data["ai_similar_traces"] = []
+			finally:
+				db.close()
+		except Exception as e:
+			pass  # LLM 데이터가 없어도 기본 trace는 반환
+
 		return {
 			"data": trace_data,
 			"found": True,

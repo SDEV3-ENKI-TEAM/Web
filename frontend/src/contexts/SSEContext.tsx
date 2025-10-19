@@ -26,6 +26,8 @@ interface Alarm {
   sigma_rule_title?: string;
   isUpdated?: boolean;
   toast_id?: string;
+  ai_score?: number;
+  ai_decision?: string;
 }
 
 interface SSEContextType {

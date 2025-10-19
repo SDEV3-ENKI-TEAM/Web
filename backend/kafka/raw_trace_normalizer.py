@@ -142,7 +142,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Normalize OTLP raw_trace to traces topic")
-    parser.add_argument("--kafka-broker", default="localhost:9092", help="Kafka broker address")
+    parser.add_argument("--kafka-broker", default="172.31.11.219:19092", help="Kafka broker address")
     parser.add_argument("--in-topic", default="raw_trace", help="Input topic with OTLP data")
     parser.add_argument("--out-topic", default="traces", help="Output topic for normalized traces")
     parser.add_argument("--group-id", default="raw_trace_normalizer_group", help="Kafka consumer group id")

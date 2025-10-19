@@ -18,7 +18,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (credentials: LoginRequest) => Promise<void>;
   register: (userData: SignupRequest) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   refreshToken: () => Promise<void>;
 }
 
@@ -112,13 +112,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     await apiRegister(userData);
   };
 
-  const logout = () => {
-    setCurrentUser(null);
-    setTokenAndUpdateAxios(null);
-    setIsLoggedIn(false);
+  const logout = async () => {
     try {
-      window.dispatchEvent(new Event("auth:logout"));
-    } catch {}
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch (error) {
+      console.error("Logout API error:", error);
+    } finally {
+      setCurrentUser(null);
+      setTokenAndUpdateAxios(null);
+      setIsLoggedIn(false);
+      try {
+        window.dispatchEvent(new Event("auth:logout"));
+      } catch {}
+    }
   };
 
   return (

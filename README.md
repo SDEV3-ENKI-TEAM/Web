@@ -89,9 +89,6 @@ AI-Detector/
 ├── EventAgent-main/                  # 에이전트, OTEL, Jaeger, Docker 구성
 │   └── docker-compose.yml
 │
-├── LLMDetection-main/                # LLM 기반 감지 컴포넌트(ChromaDB, LLM 컨슈머 등)
-│   ├── Detector/
-│   └── kafka/
 │
 ├── assets/
 ├── requirements.txt                  # 루트 공용 요구사항(있을 경우)
@@ -210,26 +207,7 @@ python raw_trace_normalizer.py
 
 ---
 
-### 7. detector.py, chromaDB, llm consumer 실행
-
-```bash
-cd LLMDetectio-main
-
-# chroma DB 실행
-cd Detector
-chroma run --host 127.0.0.1 --port 8000
-# chroma server 실행
-uvicorn chroma_api:app --reload --port 9000
-# detector.py 실행
-python detector.py
-# kafka consumer 실행
-cd Kafka
-python consumer.py
-```
-
----
-
-### 8. EventAgent 실행
+### 7. EventAgent 실행
 
 ```bash
 cd EventAgent_main

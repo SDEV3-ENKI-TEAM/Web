@@ -22,6 +22,7 @@ from api.alarms import router as alarms_router
 from api.metrics import router as metrics_router
 from api.sigma import router as sigma_router
 from api.settings import router as settings_router
+from api.llm_analysis import router as llm_analysis_router
 
 try:
     env_path = Path(__file__).parent / '.env'
@@ -137,6 +138,7 @@ app.include_router(alarms_router, prefix=API_PREFIX)
 app.include_router(metrics_router, prefix=API_PREFIX)
 app.include_router(sigma_router, prefix=API_PREFIX)
 app.include_router(settings_router, prefix=API_PREFIX)
+app.include_router(llm_analysis_router, prefix=API_PREFIX)
 
 opensearch_analyzer = OpenSearchAnalyzer()
 

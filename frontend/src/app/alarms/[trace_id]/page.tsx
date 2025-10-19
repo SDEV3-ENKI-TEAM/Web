@@ -13,9 +13,12 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import CustomNode from "@/components/CustomNode";
 import axiosInstance from "@/lib/axios";
 import { useAuth } from "@/context/AuthContext";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface Trace {
   trace_id: string;
@@ -23,9 +26,16 @@ interface Trace {
   host: string;
   os: string;
   label: string;
+  severity?: string;
   events: any[];
   sigma_match: string[];
   prompt_input: string;
+  ai_summary?: string;
+  ai_long_summary?: string;
+  ai_decision?: string;
+  ai_score?: number;
+  ai_mitigation?: string;
+  ai_similar_traces?: string[];
 }
 
 const eventTypeExplanations: { [key: string]: string } = {
@@ -156,6 +166,76 @@ function AlarmDetailContent() {
   const router = useRouter();
   const { logout } = useAuth();
 
+  // 대응제안 마크다운을 섹션(## 제목 기준)으로 분리
+  const mitigationSections = useMemo(() => {
+    const raw = trace?.ai_mitigation;
+    if (!raw || typeof raw !== "string")
+      return [] as { title: string; content: string }[];
+    try {
+      const stripped = raw
+        .replace(/```markdown\n?/, "")
+        .replace(/\n?```$/, "")
+        .trim();
+      const lines = stripped.split(/\r?\n/);
+      const sections: { title: string; content: string }[] = [];
+      let currentTitle = "";
+      let currentBody: string[] = [];
+      for (const line of lines) {
+        if (/^#\s+/.test(line)) {
+          // H1은 무시 (전체 제목)
+          continue;
+        }
+        if (/^##\s+/.test(line)) {
+          if (currentTitle) {
+            sections.push({
+              title: currentTitle,
+              content: currentBody.join("\n").trim(),
+            });
+            currentBody = [];
+          }
+          currentTitle = line.replace(/^##\s+/, "").trim();
+        } else {
+          currentBody.push(line);
+        }
+      }
+      if (currentTitle) {
+        sections.push({
+          title: currentTitle,
+          content: currentBody.join("\n").trim(),
+        });
+      }
+      return sections;
+    } catch {
+      return [] as { title: string; content: string }[];
+    }
+  }, [trace?.ai_mitigation]);
+
+  // 대응제안 섹션 색상(번호별 로테이션)
+  const mitigationColorVariants = useMemo(
+    () => [
+      {
+        container: "bg-blue-500/10 border-blue-500/30",
+        title: "text-blue-300",
+      },
+      {
+        container: "bg-emerald-500/10 border-emerald-500/30",
+        title: "text-emerald-300",
+      },
+      {
+        container: "bg-amber-500/10 border-amber-500/30",
+        title: "text-amber-300",
+      },
+      {
+        container: "bg-purple-500/10 border-purple-500/30",
+        title: "text-purple-300",
+      },
+      {
+        container: "bg-cyan-500/10 border-cyan-500/30",
+        title: "text-cyan-300",
+      },
+    ],
+    []
+  );
   const fetchSigmaTitle = async (sigmaId: string) => {
     try {
       const response = await fetch(`/api/sigma-rule/${sigmaId}`, {
@@ -176,13 +256,38 @@ function AlarmDetailContent() {
     return sigmaId; // 실패 시 ID 반환
   };
 
+  const parseSigmaAlert = (sigmaAlert: any): string[] => {
+    if (!sigmaAlert) return [];
+
+    try {
+      // JSON 배열 문자열인 경우 파싱
+      if (typeof sigmaAlert === "string" && sigmaAlert.trim().startsWith("[")) {
+        return JSON.parse(sigmaAlert);
+      }
+      // 배열인 경우
+      if (Array.isArray(sigmaAlert)) {
+        return sigmaAlert;
+      }
+      // 단일 값인 경우
+      return [sigmaAlert];
+    } catch {
+      // 파싱 실패 시 단일 값으로 처리
+      return [String(sigmaAlert)];
+    }
+  };
+
   const fetchAllSigmaTitles = async (events: any[]) => {
     const sigmaIds: string[] = [];
 
     events.forEach((event) => {
-      const sigmaId = event.tag?.["sigma@alert"];
-      if (sigmaId && !sigmaIds.includes(sigmaId)) {
-        sigmaIds.push(sigmaId);
+      const sigmaAlert = event.tag?.["sigma@alert"];
+      if (sigmaAlert) {
+        const parsedIds = parseSigmaAlert(sigmaAlert);
+        parsedIds.forEach((id) => {
+          if (id && !sigmaIds.includes(id)) {
+            sigmaIds.push(id);
+          }
+        });
       }
     });
 
@@ -348,15 +453,16 @@ function AlarmDetailContent() {
       }
 
       const eventId = tag.ID;
-      const op = event.operationName || "";
       let eventKor = "";
 
-      const newFormatMatch = op.match(/\(rule:([^)]+)\)/);
-      if (newFormatMatch) {
-        const ruleName = newFormatMatch[1];
+      // EventName에서 rule 추출: "Processterminated(rule:ProcessTerminate)"
+      const eventName = tag.EventName || "";
+      const ruleMatch = eventName.match(/\(rule:([^)]+)\)/);
+      if (ruleMatch) {
+        const ruleName = ruleMatch[1];
         eventKor = ruleNameKorean[ruleName] || ruleName;
       } else {
-        eventKor = tag.EventName || "알 수 없는 이벤트";
+        eventKor = eventName || "알 수 없는 이벤트";
       }
       const explanation = eventTypeExplanations[eventType] || eventType;
       const hasAlert =
@@ -442,7 +548,7 @@ function AlarmDetailContent() {
           </div>
         </div>
 
-        <div className="h-[600px] bg-slate-900/70 backdrop-blur-md border border-slate-700/50 rounded-lg overflow-hidden">
+        <div className="h-[600px] w-full min-w-0 box-border bg-slate-900/70 backdrop-blur-md border border-slate-700/50 rounded-lg overflow-hidden">
           <div className="bg-slate-800/80 px-4 py-2 border-b border-slate-700/50 flex items-center gap-2">
             <div className="flex gap-2">
               <div className="w-3 h-3 bg-red-500 rounded-full"></div>
@@ -453,7 +559,13 @@ function AlarmDetailContent() {
               AI 분석 결과
             </span>
           </div>
-          <div className="p-6 overflow-y-auto h-[540px]">
+          <div
+            className="p-6 overflow-y-scroll overflow-x-hidden h-[540px] w-full min-w-0 max-w-full box-border"
+            style={{
+              scrollbarGutter: "stable both-edges",
+              contain: "inline-size",
+            }}
+          >
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-cyan-400">
                 AI 위협 분석 보고서
@@ -484,14 +596,10 @@ function AlarmDetailContent() {
             </div>
 
             {activeTab === "report" && currentAnalysis && (
-              <div className="space-y-4">
-                <div className="p-4 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-lg border border-blue-500/20">
+              <div className="space-y-4 min-h-[480px] w-full">
+                {/* 기본 정보 */}
+                <div className="w-full p-4 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-lg border border-blue-500/20">
                   <div className="text-slate-200 text-sm leading-relaxed space-y-2">
-                    <p>
-                      {currentAnalysis.riskLevel === "높음"
-                        ? "• 현재 컴퓨터에서 위험한 활동이 발견되었습니다. 누군가 허가없이 컴퓨터에 접근하려고 시도한 흔적이 보입니다."
-                        : "• 현재 컴퓨터 상태는 안전한 것으로 보입니다. 일부 의심스러운 활동이 있었지만 위험하지 않습니다."}
-                    </p>
                     <p>
                       • 총{" "}
                       <span className="text-cyan-400 font-semibold">
@@ -516,14 +624,93 @@ function AlarmDetailContent() {
                         })()}
                       </span>
                     </p>
-                    <div className="mt-3 p-3 bg-slate-800/50 rounded-lg">
-                      <div className="text-xs text-slate-400 mb-1">
-                        • 간단 요약
-                      </div>
-                      <div className="text-sm text-slate-200">
-                        {currentAnalysis.summary}
+                    <div className="mt-3 p-3 bg-slate-800/50 rounded-lg w-full">
+                      <div className="text-xs text-slate-400 mb-1">• 설명</div>
+                      <div className="text-slate-200 text-sm leading-relaxed prose prose-invert prose-sm max-w-none">
+                        {trace?.ai_long_summary ? (
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              h1: ({ children }) => (
+                                <h1 className="text-sm font-semibold mt-3 mb-2 text-slate-200">
+                                  {children}
+                                </h1>
+                              ),
+                              h2: ({ children }) => (
+                                <h2 className="text-sm font-semibold mt-3 mb-2 text-slate-200">
+                                  {children}
+                                </h2>
+                              ),
+                              h3: ({ children }) => (
+                                <h3 className="text-sm font-semibold mt-3 mb-2 text-slate-200">
+                                  {children}
+                                </h3>
+                              ),
+                              p: ({ children }) => (
+                                <p className="mb-2 text-slate-300 leading-7 break-words whitespace-normal">
+                                  {children}
+                                </p>
+                              ),
+                              ul: ({ children }) => (
+                                <ul className="list-disc list-outside pl-5 mb-2 space-y-1 leading-7">
+                                  {children}
+                                </ul>
+                              ),
+                              ol: ({ children }) => (
+                                <ol className="list-decimal list-outside pl-5 mb-2 space-y-1 leading-7">
+                                  {children}
+                                </ol>
+                              ),
+                              li: ({ children }) => (
+                                <li className="text-slate-300 break-words">
+                                  {children}
+                                </li>
+                              ),
+                              code: ({ inline, children }: any) =>
+                                inline ? (
+                                  <code className="bg-slate-800 px-1 py-0.5 rounded text-cyan-400">
+                                    {children}
+                                  </code>
+                                ) : (
+                                  <code className="block bg-slate-900 p-3 rounded my-2 text-cyan-400 overflow-x-auto">
+                                    {children}
+                                  </code>
+                                ),
+                              pre: ({ children }) => (
+                                <pre className="bg-slate-900 p-3 rounded my-3 overflow-x-auto">
+                                  {children}
+                                </pre>
+                              ),
+                            }}
+                          >
+                            {trace.ai_long_summary
+                              .replace(/```markdown\n?/, "")
+                              .replace(/\n?```$/, "")}
+                          </ReactMarkdown>
+                        ) : (
+                          "분석 중..."
+                        )}
                       </div>
                     </div>
+                    {trace?.ai_similar_traces &&
+                      trace.ai_similar_traces.length > 0 && (
+                        <div className="mt-3 p-3 bg-slate-800/50 rounded-lg w-full">
+                          <div className="text-xs text-slate-400 mb-2">
+                            • 유사 트레이스
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {trace.ai_similar_traces.map((id, idx) => (
+                              <Link
+                                key={`${id}-${idx}`}
+                                href={`/alarms/${id}`}
+                                className="px-2 py-1 rounded border border-slate-600/50 bg-slate-900/50 text-cyan-300 hover:text-cyan-200 hover:border-cyan-500/40 font-mono text-xs break-all"
+                              >
+                                {id}
+                              </Link>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -534,18 +721,52 @@ function AlarmDetailContent() {
                     <div className="space-y-3">
                       <div className="p-3 bg-slate-800/50 rounded-lg">
                         <div className="flex justify-between items-center">
-                          <span className="text-slate-400">위험 등급</span>
+                          <span className="text-slate-400">
+                            위험 등급 (Sigma)
+                          </span>
                           <span
-                            className={`font-semibold ${
-                              currentAnalysis.riskLevel === "높음"
+                            className={`uppercase ${
+                              trace?.severity === "critical"
+                                ? "text-red-600"
+                                : trace?.severity === "high"
                                 ? "text-red-400"
-                                : "text-green-400"
+                                : trace?.severity === "medium"
+                                ? "text-orange-400"
+                                : "text-yellow-400"
                             }`}
                           >
-                            {currentAnalysis.riskLevel}
+                            {trace?.severity || "low"}
                           </span>
                         </div>
                       </div>
+                      {trace?.ai_decision && (
+                        <div className="p-3 bg-slate-800/50 rounded-lg">
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">AI 판정</span>
+                            <span
+                              className={`${
+                                trace.ai_decision === "malicious"
+                                  ? "text-red-400"
+                                  : "text-green-400"
+                              }`}
+                            >
+                              {trace.ai_decision === "malicious"
+                                ? "악성"
+                                : "정상"}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                      {trace?.ai_score !== undefined && (
+                        <div className="p-3 bg-slate-800/50 rounded-lg">
+                          <div className="flex justify-between items-center">
+                            <span className="text-slate-400">AI Score</span>
+                            <span className="text-blue-400">
+                              {(trace.ai_score * 100).toFixed(1)}%
+                            </span>
+                          </div>
+                        </div>
+                      )}
                       <div className="p-3 bg-slate-800/50 rounded-lg">
                         <div className="flex justify-between items-center">
                           <span className="text-slate-400">사용자</span>
@@ -558,16 +779,6 @@ function AlarmDetailContent() {
                               }
                               return "-";
                             })()}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="p-3 bg-slate-800/50 rounded-lg">
-                        <div className="flex justify-between items-center">
-                          <span className="text-slate-400">공격 벡터</span>
-                          <span className="text-yellow-400">
-                            {eventTypeExplanations[
-                              currentAnalysis.attackVector
-                            ] || currentAnalysis.attackVector}
                           </span>
                         </div>
                       </div>
@@ -601,53 +812,134 @@ function AlarmDetailContent() {
             )}
 
             {activeTab === "response" && (
-              <div className="space-y-4">
-                <div className="mb-4">
-                  <h3 className="text-md font-semibold text-white mb-2">
-                    즉시 대응 조치
-                  </h3>
-                  <div className="p-4 bg-gradient-to-r from-red-500/10 to-orange-500/10 rounded-lg border border-red-500/20">
-                    <div className="text-red-400 font-semibold mb-2">
-                      • 긴급 조치 (지금 즉시)
+              <div className="space-y-4 min-h-[480px]">
+                {trace?.ai_mitigation && (
+                  <div className="w-full p-4 bg-slate-800/40 rounded-lg border border-slate-700/40">
+                    <div className="text-slate-300 text-xs mb-2 font-semibold">
+                      AI 추천 대응 방안
                     </div>
-                    <div className="text-slate-300 text-sm leading-relaxed space-y-2">
-                      <div>• 1단계: 현재 작업을 저장하고 중단하세요</div>
-                      <div>
-                        • 2단계: 실행 중인 의심스러운 프로그램을 종료하세요
+                    {mitigationSections.length > 0 ? (
+                      <div className="space-y-3">
+                        {mitigationSections.map((sec, idx) => {
+                          const variant =
+                            mitigationColorVariants[
+                              idx % mitigationColorVariants.length
+                            ];
+                          return (
+                            <div
+                              key={`${idx}-${sec.title}`}
+                              className={`w-full p-3 rounded-lg border ${variant.container}`}
+                            >
+                              <div
+                                className={`${variant.title} font-semibold mb-2`}
+                              >
+                                {sec.title}
+                              </div>
+                              <div className="text-slate-200 text-sm leading-relaxed prose prose-invert prose-sm max-w-none">
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm]}
+                                  components={{
+                                    p: ({ children }) => (
+                                      <p className="mb-2 text-slate-300 leading-7">
+                                        {children}
+                                      </p>
+                                    ),
+                                    ul: ({ children }) => (
+                                      <ul className="list-disc list-outside pl-5 mb-2 space-y-1 leading-7">
+                                        {children}
+                                      </ul>
+                                    ),
+                                    ol: ({ children }) => (
+                                      <ol className="list-decimal list-outside pl-5 mb-2 space-y-1 leading-7">
+                                        {children}
+                                      </ol>
+                                    ),
+                                    li: ({ children }) => (
+                                      <li className="text-slate-300 break-words">
+                                        {children}
+                                      </li>
+                                    ),
+                                    code: ({ inline, children }: any) =>
+                                      inline ? (
+                                        <code className="bg-slate-800 px-1 py-0.5 rounded text-cyan-400">
+                                          {children}
+                                        </code>
+                                      ) : (
+                                        <code className="block bg-slate-900 p-3 rounded my-2 text-cyan-400 overflow-x-auto">
+                                          {children}
+                                        </code>
+                                      ),
+                                    pre: ({ children }) => (
+                                      <pre className="bg-slate-900 p-3 rounded my-3 overflow-x-auto">
+                                        {children}
+                                      </pre>
+                                    ),
+                                  }}
+                                >
+                                  {sec.content}
+                                </ReactMarkdown>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                      <div>• 3단계: 관리자에게 즉시 신고하세요</div>
-                    </div>
+                    ) : (
+                      <div className="text-slate-200 text-sm leading-relaxed prose prose-invert prose-sm max-w-none">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            p: ({ children }) => (
+                              <p className="mb-2 text-slate-300 leading-7">
+                                {children}
+                              </p>
+                            ),
+                            ul: ({ children }) => (
+                              <ul className="list-disc list-outside pl-5 mb-2 space-y-1 leading-7">
+                                {children}
+                              </ul>
+                            ),
+                            ol: ({ children }) => (
+                              <ol className="list-decimal list-outside pl-5 mb-2 space-y-1 leading-7">
+                                {children}
+                              </ol>
+                            ),
+                            li: ({ children }) => (
+                              <li className="text-slate-300 break-words">
+                                {children}
+                              </li>
+                            ),
+                            code: ({ inline, children }: any) =>
+                              inline ? (
+                                <code className="bg-slate-800 px-1 py-0.5 rounded text-cyan-400">
+                                  {children}
+                                </code>
+                              ) : (
+                                <code className="block bg-slate-900 p-3 rounded my-2 text-cyan-400 overflow-x-auto">
+                                  {children}
+                                </code>
+                              ),
+                            pre: ({ children }) => (
+                              <pre className="bg-slate-900 p-3 rounded my-3 overflow-x-auto">
+                                {children}
+                              </pre>
+                            ),
+                          }}
+                        >
+                          {trace.ai_mitigation
+                            .replace(/```markdown\n?/, "")
+                            .replace(/\n?```$/, "")}
+                        </ReactMarkdown>
+                      </div>
+                    )}
                   </div>
-                </div>
-                <div className="mb-4">
-                  <h3 className="text-md font-semibold text-white mb-2">
-                    단기 대응
-                  </h3>
-                  <div className="p-4 bg-gradient-to-r from-orange-500/10 to-yellow-500/10 rounded-lg border border-orange-500/20">
-                    <div className="text-orange-400 font-semibold mb-2">
-                      • 단기 대응 (30분 내)
-                    </div>
-                    <div className="text-slate-300 text-sm leading-relaxed space-y-2">
-                      <div>• 백신 프로그램으로 전체 검사 실행</div>
-                      <div>• 시스템 복원 지점 확인</div>
-                      <div>• 중요한 파일 백업 상태 점검</div>
-                    </div>
+                )}
+
+                {/* 대응제안 데이터 없을 때 */}
+                {!trace?.ai_mitigation && (
+                  <div className="p-4 bg-slate-800/40 rounded-lg border border-slate-700/40 text-slate-300 text-sm">
+                    대응제안 생성중...
                   </div>
-                </div>
-                <div className="mb-4">
-                  <h3 className="text-md font-semibold text-white mb-2">
-                    예방 조치
-                  </h3>
-                  <div className="p-4 bg-gradient-to-r from-green-500/10 to-blue-500/10 rounded-lg border border-green-500/20">
-                    <div className="text-slate-200 text-sm leading-relaxed space-y-2">
-                      <div>• 정기적인 보안 업데이트 설치</div>
-                      <div>• 의심스러운 이메일 첨부파일 열지 않기</div>
-                      <div>• 중요한 데이터 정기적 백업</div>
-                      <div>• 강력한 비밀번호 사용 및 정기적 변경</div>
-                      <div>• 출처 불분명한 소프트웨어 설치 금지</div>
-                    </div>
-                  </div>
-                </div>
+                )}
               </div>
             )}
           </div>
@@ -847,10 +1139,17 @@ function AlarmDetailContent() {
                 {selectedNode.data.event.tag?.["sigma@alert"] && (
                   <div className="mt-4">
                     <span className="text-slate-400">탐지된 Sigma 룰:</span>
-                    <div className="text-yellow-300 bg-yellow-500/10 p-2 rounded border border-yellow-500/20 text-sm break-words">
-                      {sigmaTitles[
+                    <div className="space-y-2 mt-2">
+                      {parseSigmaAlert(
                         selectedNode.data.event.tag["sigma@alert"]
-                      ] || selectedNode.data.event.tag["sigma@alert"]}
+                      ).map((sigmaId, idx) => (
+                        <div
+                          key={idx}
+                          className="text-yellow-300 bg-yellow-500/10 p-2 rounded border border-yellow-500/20 text-sm break-words"
+                        >
+                          {sigmaTitles[sigmaId] || sigmaId}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}

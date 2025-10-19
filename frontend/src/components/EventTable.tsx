@@ -209,25 +209,34 @@ export default function EventTable({
                       selectedEventId === event.id
                         ? event.label === "Anomaly"
                           ? "bg-red-500/40 border-red-400/70 text-red-200"
+                          : event.label === "Pending"
+                          ? "bg-yellow-500/40 border-yellow-400/70 text-yellow-200"
                           : "bg-green-500/40 border-green-400/70 text-green-200"
                         : event.label === "Anomaly"
                         ? "bg-red-500/20 border-red-500/50 text-red-300"
+                        : event.label === "Pending"
+                        ? "bg-yellow-500/20 border-yellow-500/50 text-yellow-300"
                         : "bg-green-500/20 border-green-500/50 text-green-300"
                     }`}
                   >
-                    {event.label === "Anomaly" ? "위험" : "정상"}
+                    {event.label === "Anomaly"
+                      ? "위험"
+                      : event.label === "Pending"
+                      ? "미확인"
+                      : "정상"}
                   </span>
                 </div>
 
                 {/* AI Summary */}
                 <div
-                  className={`col-span-4 font-mono text-center ${
+                  className={`col-span-4 font-mono text-center truncate ${
                     selectedEventId === event.id
                       ? "text-blue-200"
                       : "text-slate-300"
                   }`}
+                  title={event.ai_summary || ""}
                 >
-                  {event.ai_summary || event.event}
+                  {event.ai_summary || "-"}
                 </div>
               </motion.div>
             ))}

@@ -24,6 +24,16 @@ body {
     rgb(var(--background-start-rgb));
 }
 
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable both-edges;
+}
+
+body {
+  overflow-y: scroll;
+  scrollbar-gutter: stable both-edges;
+}
+
 @layer components {
   .card {
     @apply bg-app-background-800 backdrop-blur-sm rounded-xl p-6 shadow-lg border border-app-primary-200 transition-all duration-300 hover:bg-app-background-900 hover:shadow-xl hover:border-app-primary-300;
