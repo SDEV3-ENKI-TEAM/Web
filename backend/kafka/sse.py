@@ -228,6 +228,7 @@ async def get_recent_alarms(limit: int = 10, username: Optional[str] = None):
 
 
 
+@app.get("/sse/alarms")
 @app.get("/api/sse/alarms")
 async def sse_alarms(request: Request, limit: int = 50, token: Optional[str] = None):
     try:
