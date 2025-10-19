@@ -385,7 +385,7 @@ def main():
         before_stats = importer.get_collection_stats()
         logger.info(f"임포트 전 통계: {before_stats}")
 
-        default_rules_dir = args.dir or "EventAgent-main/sigma_matcher/rules/rules"
+        default_rules_dir = args.dir or "./rules"
 
         import_stats = importer.import_all_rules(
             rules_dir=default_rules_dir,
