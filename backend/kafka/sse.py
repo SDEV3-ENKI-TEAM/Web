@@ -232,6 +232,7 @@ async def get_recent_alarms(limit: int = 10, username: Optional[str] = None):
 @app.get("/api/sse/alarms")
 async def sse_alarms(request: Request, limit: int = 50, token: Optional[str] = None):
     try:
+        logger.info(f"🔗 SSE 연결 요청 받음: {request.client.host if request.client else 'unknown'}")
         auth_header = request.headers.get("authorization") if request else None
         user_info = None
         
@@ -255,6 +256,7 @@ async def sse_alarms(request: Request, limit: int = 50, token: Optional[str] = N
             return {"error": "JWT 토큰이 유효하지 않습니다"}
 
         username = str(user_info["username"])  
+        logger.info(f"✅ 사용자 인증 성공: {username}")
 
         recent_alarms = valkey_reader.get_recent_alarms(limit, username)
         initial_message = {
@@ -265,7 +267,9 @@ async def sse_alarms(request: Request, limit: int = 50, token: Optional[str] = N
         }
 
         async def event_generator():
+            logger.info(f"🚀 SSE 이벤트 생성기 시작: {username}")
             queue = sse_manager.connect(username)
+            logger.info(f"📡 SSE 연결 등록 완료: {username}")
             try:
                 yield f"data: {json.dumps(initial_message, ensure_ascii=False)}\n\n"
 
