@@ -2,9 +2,9 @@ import hashlib
 import secrets
 import string
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Cookie
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
@@ -26,7 +26,7 @@ from database.user_models import JwtResponse, LoginRequest, MessageResponse, Sig
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 limiter = Limiter(key_func=get_remote_address)
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
@@ -131,7 +131,7 @@ def _create_jwt_response(user: User, roles: List[str], db: Session, request: Req
         value=refresh_token,
         httponly=True,
         secure=True,
-        samesite="strict",
+        samesite="lax",
         max_age=12 * 60 * 60  # 12시간
     )
     json_response.set_cookie(
@@ -139,7 +139,7 @@ def _create_jwt_response(user: User, roles: List[str], db: Session, request: Req
         value=access_token,
         httponly=True,
         secure=True,
-        samesite="strict",
+        samesite="lax",
         max_age=60 * 60
     )
     
@@ -211,12 +211,32 @@ async def register_user(signup_request: SignupRequest, db: Session = Depends(get
 
 @router.post("/logout")
 async def logout(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    access_token_cookie: Optional[str] = Cookie(None, alias="access_token"),
     db: Session = Depends(get_db)
 ):
     """사용자 로그아웃"""
     try:
-        user_info = _verify_user_token(credentials)
+        # Authorization 헤더 또는 쿠키에서 토큰 가져오기
+        token = None
+        if credentials:
+            token = credentials.credentials
+        elif access_token_cookie:
+            token = access_token_cookie
+        
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="인증 토큰이 필요합니다"
+            )
+        
+        user_info = verify_token(token)
+        if not user_info:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="유효하지 않은 토큰"
+            )
+        
         user = _get_user_from_token(db, user_info)
         
         db.query(RefreshToken).filter(
@@ -225,7 +245,12 @@ async def logout(
         ).update({"is_revoked": True})
         db.commit()
         
-        return {"message": "로그아웃 성공"}
+        # 쿠키 삭제
+        response = JSONResponse(content={"message": "로그아웃 성공"})
+        response.delete_cookie(key="access_token")
+        response.delete_cookie(key="refresh_token")
+        
+        return response
     except HTTPException:
         raise
     except Exception as e:
@@ -233,9 +258,26 @@ async def logout(
 
 @router.post("/refresh")
 @limiter.limit("10/minute")
-async def refresh_token(request: Request, refresh_request: RefreshTokenRequest, db: Session = Depends(get_db)):
+async def refresh_token(
+    request: Request, 
+    refresh_token_cookie: Optional[str] = Cookie(None, alias="refresh_token"),
+    refresh_request: Optional[RefreshTokenRequest] = None,
+    db: Session = Depends(get_db)
+):
     """Refresh Token으로 새로운 Access Token 발급"""
-    refresh_token = refresh_request.refresh_token
+    # 쿠키 또는 body에서 refresh_token 가져오기
+    refresh_token = None
+    if refresh_token_cookie:
+        refresh_token = refresh_token_cookie
+    elif refresh_request:
+        refresh_token = refresh_request.refresh_token
+    
+    if not refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh Token이 필요합니다"
+        )
+    
     user_info = verify_refresh_token(refresh_token)
     if not user_info:
         raise HTTPException(
@@ -272,7 +314,7 @@ async def refresh_token(request: Request, refresh_request: RefreshTokenRequest, 
         value=new_refresh_token,
         httponly=True,
         secure=True,
-        samesite="strict",
+        samesite="lax",
         max_age=12 * 60 * 60
     )
     json_response.set_cookie(
@@ -280,18 +322,38 @@ async def refresh_token(request: Request, refresh_request: RefreshTokenRequest, 
         value=new_access_token,
         httponly=True,
         secure=True,
-        samesite="strict",
+        samesite="lax",
         max_age=60 * 60
     )
     return json_response
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    access_token_cookie: Optional[str] = Cookie(None, alias="access_token"),
     db: Session = Depends(get_db)
 ):
     """현재 사용자 정보 조회"""
-    user_info = _verify_user_token(credentials)
+    # Authorization 헤더 또는 쿠키에서 토큰 가져오기
+    token = None
+    if credentials:
+        token = credentials.credentials
+    elif access_token_cookie:
+        token = access_token_cookie
+    
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="인증 토큰이 필요합니다"
+        )
+    
+    user_info = verify_token(token)
+    if not user_info:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="유효하지 않은 토큰"
+        )
+    
     user = _get_user_from_token(db, user_info)
     roles = _get_user_roles(db, user.id)
     

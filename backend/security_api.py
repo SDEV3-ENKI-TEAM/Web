@@ -6,7 +6,7 @@ from typing import Optional
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pymongo import MongoClient
@@ -141,6 +141,64 @@ app.include_router(metrics_router, prefix=API_PREFIX)
 app.include_router(sigma_router, prefix=API_PREFIX)
 app.include_router(settings_router, prefix=API_PREFIX)
 app.include_router(llm_analysis_router, prefix=API_PREFIX)
+
+# Dashboard stats endpoint
+from utils.auth_deps import get_current_user_with_roles
+
+@app.get(f"{API_PREFIX}/dashboard-stats")
+async def get_dashboard_stats(current_user: dict = Depends(get_current_user_with_roles)):
+    """대시보드 통계 정보 조회"""
+    try:
+        from database.database import SessionLocal, LLMAnalysis
+        from sqlalchemy import or_, func
+        
+        db = SessionLocal()
+        try:
+            uid = current_user.get("id")
+            uname = current_user.get("username")
+            
+            # 사용자별 필터링
+            q = db.query(LLMAnalysis)
+            filters = []
+            if uid is not None:
+                filters.append(LLMAnalysis.user_id == str(uid))
+            if uname:
+                filters.append(LLMAnalysis.user_id == uname)
+            if filters:
+                q = q.filter(or_(*filters))
+            
+            # 전체 이벤트 수
+            total_events = q.count()
+            
+            # 이상 징후 수 (malicious)
+            anomalies = q.filter(LLMAnalysis.prediction == "malicious").count()
+            
+            # 미확인 수
+            unchecked_count = q.filter(LLMAnalysis.prediction == None).count()
+            
+            # 평균 이상 징후 비율
+            avg_anomaly = round((anomalies / total_events) * 100, 1) if total_events > 0 else 0.0
+            
+            # 가장 높은 점수 (score 필드 사용)
+            try:
+                max_score_query = q.with_entities(func.max(LLMAnalysis.score))
+                max_score = max_score_query.scalar()
+                highest_score = float(max_score) if max_score is not None else 0.0
+            except:
+                highest_score = 0.0
+            
+            return {
+                "totalEvents": total_events,
+                "anomalies": anomalies,
+                "avgAnomaly": avg_anomaly,
+                "highestScore": highest_score,
+                "uncheckedCount": unchecked_count
+            }
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Dashboard stats error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 opensearch_analyzer = OpenSearchAnalyzer()
 
