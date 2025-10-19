@@ -3,7 +3,7 @@ import json
 import logging
 
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -12,6 +12,30 @@ from utils.auth_deps import get_current_user_with_roles
 
 router = APIRouter(prefix="/alarms", tags=["alarms"], dependencies=[Depends(get_current_user_with_roles)])
 logger = logging.getLogger(__name__)
+
+
+def safe_mongo_find_one(collection, query: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+	"""MongoDB 컬렉션에서 안전하게 문서를 조회합니다.
+	
+	Args:
+		collection: MongoDB 컬렉션 객체 (None일 수 있음)
+		query: 조회 쿼리
+	
+	Returns:
+		문서 또는 None
+	
+	Raises:
+		RuntimeError: 컬렉션이 None인 경우
+	"""
+	if collection is None:
+		logger.warning(f"MongoDB collection is None, cannot execute query: {query}")
+		return None
+	
+	try:
+		return collection.find_one(query)
+	except Exception as e:
+		logger.error(f"MongoDB query error: {e}")
+		return None
 
 
 def parse_sigma_alert(sigma_alert_value) -> List[str]:
@@ -603,12 +627,11 @@ async def get_alarm_detail(trace_id: str, request: Request, current_user: dict =
 			if sigma_alert:
 				for rule_id in parse_sigma_alert(sigma_alert):
 					matched_sigma_ids.add(rule_id)
-					if mongo_collection:
-						rule_info = mongo_collection.find_one({"sigma_id": rule_id})
-						if rule_info:
-							severity_scores.append(rule_info.get('severity_score', 30))
-						else:
-							severity_scores.append(90)
+					rule_info = safe_mongo_find_one(mongo_collection, {"sigma_id": rule_id})
+					if rule_info:
+						severity_scores.append(rule_info.get('severity_score', 30))
+					else:
+						severity_scores.append(90)
 		
 		if severity_scores:
 			avg_severity_score = sum(severity_scores) / len(severity_scores)
