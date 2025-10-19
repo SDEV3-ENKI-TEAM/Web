@@ -16,15 +16,23 @@ export async function GET(request: NextRequest) {
   )}`;
 
   const doFetch = async (authToken: string | null) => {
-    return fetch(backendUrl, {
-      headers: {
-        Accept: "text/event-stream",
-        Connection: "keep-alive",
-        "Cache-Control": "no-cache",
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-      },
-      signal: request.signal,
-    });
+    console.log(`🔗 Next.js API 라우트에서 백엔드로 요청: ${backendUrl}`);
+    try {
+      const response = await fetch(backendUrl, {
+        headers: {
+          Accept: "text/event-stream",
+          Connection: "keep-alive",
+          "Cache-Control": "no-cache",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        signal: request.signal,
+      });
+      console.log(`📡 백엔드 응답 상태: ${response.status}`);
+      return response;
+    } catch (error) {
+      console.error(`❌ 백엔드 연결 실패: ${error}`);
+      throw error;
+    }
   };
 
   let resp = await doFetch(token);
