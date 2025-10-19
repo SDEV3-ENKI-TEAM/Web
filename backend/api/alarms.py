@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 
 from datetime import datetime
 from typing import Optional, List
@@ -10,6 +11,7 @@ from pydantic import BaseModel
 from utils.auth_deps import get_current_user_with_roles
 
 router = APIRouter(prefix="/alarms", tags=["alarms"], dependencies=[Depends(get_current_user_with_roles)])
+logger = logging.getLogger(__name__)
 
 
 def parse_sigma_alert(sigma_alert_value) -> List[str]:
@@ -548,6 +550,133 @@ async def get_alarms_severity(request: Request, current_user: dict = Depends(get
 							}
 		return {"severity_data": severity_data, "total_alerts": len(severity_data)}
 	except Exception as e:
+		raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{trace_id}")
+async def get_alarm_detail(trace_id: str, request: Request, current_user: dict = Depends(get_current_user_with_roles)):
+	"""특정 trace_id의 알람 상세 정보 조회"""
+	try:
+		opensearch_analyzer = request.app.state.opensearch
+		mongo_collection = request.app.state.mongo_collection
+		user_id = current_user.get("id")
+		username = current_user.get("username")
+		
+		# OpenSearch에서 trace 데이터 조회
+		query = {
+			"query": {
+				"bool": {
+					"must": [
+						{"term": {"traceID": trace_id}},
+						{"bool": {
+							"should": [
+								{"term": {"tag.user_id": str(user_id)}},
+								{"term": {"tag.user_id": username}}
+							]
+						}}
+					]
+				}
+			},
+			"size": 10000,
+			"sort": [{"startTimeMillis": {"order": "asc"}}]
+		}
+		
+		response = opensearch_analyzer.client.search(index="jaeger-span-*", body=query)
+		
+		if not response['hits']['hits']:
+			raise HTTPException(status_code=404, detail="Trace not found")
+		
+		spans = response['hits']['hits']
+		events = [span['_source'] for span in spans]
+		
+		# 기본 정보 추출
+		first_span = spans[0]['_source']
+		tags = first_span.get('tag', {})
+		
+		# Severity 계산
+		severity_scores = []
+		matched_sigma_ids = set()
+		for span in spans:
+			src = span['_source']
+			tag = src.get('tag', {})
+			sigma_alert = tag.get('sigma@alert', '')
+			if sigma_alert:
+				for rule_id in parse_sigma_alert(sigma_alert):
+					matched_sigma_ids.add(rule_id)
+					if mongo_collection:
+						rule_info = mongo_collection.find_one({"sigma_id": rule_id})
+						if rule_info:
+							severity_scores.append(rule_info.get('severity_score', 30))
+						else:
+							severity_scores.append(90)
+		
+		if severity_scores:
+			avg_severity_score = sum(severity_scores) / len(severity_scores)
+		else:
+			avg_severity_score = 30
+		
+		if avg_severity_score >= 90:
+			severity = "critical"
+		elif avg_severity_score >= 80:
+			severity = "high"
+		elif avg_severity_score > 60:
+			severity = "medium"
+		else:
+			severity = "low"
+		
+		# LLM 분석 결과 조회
+		from database.database import SessionLocal, LLMAnalysis
+		db = SessionLocal()
+		try:
+			llm_analysis = db.query(LLMAnalysis).filter(LLMAnalysis.trace_id == trace_id).first()
+			
+			ai_summary = None
+			ai_long_summary = None
+			ai_decision = None
+			ai_score = None
+			ai_mitigation = None
+			ai_similar_traces = []
+			
+			if llm_analysis:
+				ai_summary = llm_analysis.summary
+				ai_long_summary = llm_analysis.long_summary
+				ai_decision = llm_analysis.prediction
+				ai_score = llm_analysis.score
+				ai_mitigation = llm_analysis.mitigation_suggestions
+				
+				if llm_analysis.similar_trace_ids:
+					try:
+						ai_similar_traces = json.loads(llm_analysis.similar_trace_ids) if isinstance(llm_analysis.similar_trace_ids, str) else llm_analysis.similar_trace_ids
+					except:
+						ai_similar_traces = []
+		finally:
+			db.close()
+		
+		# 응답 데이터 구성
+		trace_data = {
+			"trace_id": trace_id,
+			"timestamp": first_span.get('startTime', ''),
+			"host": tags.get('ComputerName', tags.get('hostname', 'unknown')),
+			"os": tags.get('os', 'unknown'),
+			"label": ai_decision if ai_decision else ("anomaly" if matched_sigma_ids else "normal"),
+			"severity": severity,
+			"events": events,
+			"sigma_match": list(matched_sigma_ids),
+			"prompt_input": ai_summary or "",
+			"ai_summary": ai_summary,
+			"ai_long_summary": ai_long_summary,
+			"ai_decision": ai_decision,
+			"ai_score": ai_score,
+			"ai_mitigation": ai_mitigation,
+			"ai_similar_traces": ai_similar_traces
+		}
+		
+		return {"data": trace_data}
+		
+	except HTTPException:
+		raise
+	except Exception as e:
+		logger.error(f"알람 상세 조회 오류: {e}")
 		raise HTTPException(status_code=500, detail=str(e))
 
 
