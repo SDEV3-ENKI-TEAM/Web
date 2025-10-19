@@ -172,9 +172,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="실시간 알람 SSE 서버", version="1.0.0", lifespan=lifespan)
 
+# CORS 설정을 환경 변수에서 읽기
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -225,16 +228,28 @@ async def get_recent_alarms(limit: int = 10, username: Optional[str] = None):
 
 
 
-@app.get("/sse/alarms")
+@app.get("/api/sse/alarms")
 async def sse_alarms(request: Request, limit: int = 50, token: Optional[str] = None):
     try:
         auth_header = request.headers.get("authorization") if request else None
         user_info = None
+        
+        # 1. Authorization 헤더에서 토큰 확인
         if auth_header and auth_header.lower().startswith("bearer "):
             bearer_token = auth_header.split(" ", 1)[1].strip()
             user_info = verify_jwt_token(bearer_token)
+        
+        # 2. 쿠키에서 access_token 확인
+        if not user_info:
+            cookies = request.cookies
+            access_token = cookies.get("access_token")
+            if access_token:
+                user_info = verify_jwt_token(access_token)
+        
+        # 3. URL 쿼리 파라미터에서 token 확인
         if not user_info and token:
             user_info = verify_jwt_token(token)
+        
         if not user_info:
             return {"error": "JWT 토큰이 유효하지 않습니다"}
 
