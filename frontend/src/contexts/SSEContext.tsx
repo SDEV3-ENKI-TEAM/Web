@@ -223,9 +223,7 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
           try {
             await fetch(`/api/alarms/warm-cache`, { method: "POST" });
           } catch {}
-          esInstance = new EventSource(
-            `https://3-36-80-36.sslip.io:8004/sse/alarms?limit=100`
-          );
+          esInstance = new EventSource(`/api/sse/alarms?limit=100`);
         } catch {
           setSseError("SSE 연결 생성 실패");
           scheduleReconnect();

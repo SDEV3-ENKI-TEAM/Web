@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
   const token = cookieStore.get("access_token")?.value;
   if (!token) return new Response("unauthorized", { status: 401 });
 
-  const backendUrl = `http://127.0.0.1:8004/sse/alarms?limit=${encodeURIComponent(
+  const backendUrl = `http://localhost:8004/sse/alarms?limit=${encodeURIComponent(
     limit
   )}`;
 

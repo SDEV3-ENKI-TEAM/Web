@@ -173,7 +173,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="실시간 알람 SSE 서버", version="1.0.0", lifespan=lifespan)
 
 # CORS 설정을 환경 변수에서 읽기
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,https://3-36-80-36.sslip.io").split(",")
 
 app.add_middleware(
     CORSMiddleware,
@@ -347,6 +347,8 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8004,
         reload=True,
-        log_level="info"
+        log_level="info",
+        ssl_keyfile=None,  # SSL 인증서가 있다면 경로 지정
+        ssl_certfile=None  # SSL 인증서가 있다면 경로 지정
     ) 
     
