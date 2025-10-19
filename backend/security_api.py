@@ -69,9 +69,24 @@ async def lifespan(app: FastAPI):
     global mongo_client, mongo_collection
     try:
         if MONGO_URI:
-            mongo_client = MongoClient(MONGO_URI)
-            if MONGO_DB and MONGO_COLLECTION:
-                mongo_collection = mongo_client[MONGO_DB][MONGO_COLLECTION]
+            try:
+                mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+                # 연결 테스트
+                mongo_client.admin.command('ping')
+                logger.info(f"✅ MongoDB 연결 성공: {MONGO_URI}")
+                
+                if MONGO_DB and MONGO_COLLECTION:
+                    mongo_collection = mongo_client[MONGO_DB][MONGO_COLLECTION]
+                    count = mongo_collection.count_documents({})
+                    logger.info(f"✅ Sigma 룰 컬렉션: {count}개 문서")
+            except Exception as e:
+                logger.error(f"❌ MongoDB 연결 실패: {e}")
+                logger.warning("⚠️  Sigma 룰 조회가 제한됩니다. MongoDB를 확인하세요.")
+                mongo_client = None
+                mongo_collection = None
+        else:
+            logger.warning("⚠️  MONGO_URI가 설정되지 않았습니다. .env 파일을 확인하세요.")
+        
         app.state.mongo_client = mongo_client
         app.state.mongo_collection = mongo_collection
         app.state.opensearch = OpenSearchAnalyzer()
@@ -228,6 +243,82 @@ class SearchQuery(BaseModel):
 @app.get("/")
 def read_root():
     return {"message": "FastAPI backend is running."}
+
+@app.get(f"{API_PREFIX}/health")
+async def health_check(request: Request):
+    """시스템 헬스체크 - MongoDB, OpenSearch, Valkey 상태 확인"""
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "services": {}
+    }
+    
+    # MongoDB 확인
+    mongo_collection = getattr(request.app.state, "mongo_collection", None)
+    if mongo_collection is not None:
+        try:
+            count = mongo_collection.count_documents({})
+            health_status["services"]["mongodb"] = {
+                "status": "connected",
+                "sigma_rules": count
+            }
+        except Exception as e:
+            health_status["services"]["mongodb"] = {
+                "status": "error",
+                "error": str(e)
+            }
+            health_status["status"] = "degraded"
+    else:
+        health_status["services"]["mongodb"] = {
+            "status": "not_configured"
+        }
+        health_status["status"] = "degraded"
+    
+    # Valkey 확인
+    valkey = getattr(request.app.state, "valkey", None)
+    if valkey is not None:
+        try:
+            valkey.ping()
+            health_status["services"]["valkey"] = {
+                "status": "connected"
+            }
+        except Exception as e:
+            health_status["services"]["valkey"] = {
+                "status": "error",
+                "error": str(e)
+            }
+            health_status["status"] = "degraded"
+    else:
+        health_status["services"]["valkey"] = {
+            "status": "not_configured"
+        }
+    
+    # OpenSearch 확인
+    opensearch = getattr(request.app.state, "opensearch", None)
+    if opensearch is not None:
+        try:
+            if opensearch.client.ping():
+                health_status["services"]["opensearch"] = {
+                    "status": "connected"
+                }
+            else:
+                health_status["services"]["opensearch"] = {
+                    "status": "disconnected"
+                }
+                health_status["status"] = "degraded"
+        except Exception as e:
+            health_status["services"]["opensearch"] = {
+                "status": "error",
+                "error": str(e)
+            }
+            health_status["status"] = "degraded"
+    else:
+        health_status["services"]["opensearch"] = {
+            "status": "not_configured"
+        }
+        health_status["status"] = "degraded"
+    
+    return health_status
 
 # SSE Manager for real-time alarms
 class SSEManager:
