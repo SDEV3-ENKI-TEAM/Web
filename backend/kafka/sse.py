@@ -293,9 +293,13 @@ async def sse_alarms(request: Request, limit: int = 50, token: Optional[str] = N
 
 async def broadcast_events():
     """Valkey 이벤트를 SSE로 브로드캐스트 (사용자별 분리)"""
+    logger.info("🚀 broadcast_events 시작 - Valkey 폴링 중...")
     while True:
         try:
             events = valkey_reader.get_sse_events()
+            
+            if events:
+                logger.info(f"📬 {len(events)}개 이벤트 발견, 연결된 사용자: {len(sse_manager.user_queues)}")
             
             if events and sse_manager.user_queues:
                 broadcast_count = 0
@@ -322,6 +326,9 @@ async def broadcast_events():
                 if broadcast_count > 0:
                     for _ in range(broadcast_count):
                         valkey_reader.valkey_client.rpop('sse_events')
+                    logger.info(f"✅ {broadcast_count}개 이벤트 브로드캐스트 완료")
+            elif events and not sse_manager.user_queues:
+                logger.warning(f"⚠️  {len(events)}개 이벤트 있지만 연결된 사용자 없음 - 대기 중...")
             
             await asyncio.sleep(1)
             
