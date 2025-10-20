@@ -78,8 +78,7 @@ class TraceConsumer:
                 value_deserializer=lambda m: m,  # raw bytes, 토픽별로 파싱
                 consumer_timeout_ms=1000,
             )
-            # traces + ai-result-topic + llm_result 동시 구독
-            self.consumer.subscribe([self.kafka_topic, "ai-result-topic", "llm_result"])
+            self.consumer.subscribe([self.kafka_topic, "llm_result"])
             logger.info(
                 f"Kafka Consumer 초기화 완료: {self.kafka_broker} -> subscribe {[self.kafka_topic, 'ai-result-topic', 'llm_result']}"
             )
@@ -244,6 +243,26 @@ class TraceConsumer:
                 trace_key, json.dumps(alarm_card, ensure_ascii=False)
             )
             self.valkey_client.expire(trace_key, 86400)
+
+            event_key = "sse_events"
+            event_data = {
+                "type": "trace_update",
+                "trace_id": trace_id,
+                "data": {
+                    "trace_id": trace_id,
+                    "user_id": str(alarm_card.get("user_id", "default_user")),
+                    "username": str(alarm_card.get("user_id", "default_user")),
+                    "summary": alarm_card.get("summary", ""),
+                    "severity": alarm_card.get("severity", "low"),
+                    "severity_score": alarm_card.get("severity_score", 30),
+                    "matched_span_count": alarm_card.get("matched_span_count", 0),
+                    "matched_rule_unique_count": alarm_card.get("matched_rule_unique_count", 0),
+                    "is_new": is_new_card
+                },
+                "timestamp": int(time.time() * 1000),
+            }
+            self.valkey_client.lpush(event_key, json.dumps(event_data, ensure_ascii=False))
+            self.valkey_client.ltrim(event_key, 0, 999)
 
             alarm_key = "recent_alarms"
 
