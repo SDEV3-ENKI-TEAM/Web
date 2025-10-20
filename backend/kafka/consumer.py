@@ -52,12 +52,12 @@ class TraceConsumer:
         mongo_collection: str = None,
     ):
         # 환경 변수에서 값 가져오기 (인자로 전달된 값이 없으면)
-        self.kafka_broker = kafka_broker or os.getenv("KAFKA_BROKER", "localhost:9092")
+        self.kafka_broker = kafka_broker or os.getenv("KAFKA_BROKER", "172.31.11.219:19092")
         self.kafka_topic = kafka_topic or os.getenv("KAFKA_TOPIC", "traces")
-        self.valkey_host = valkey_host or os.getenv("VALKEY_HOST", "localhost")
+        self.valkey_host = valkey_host or os.getenv("VALKEY_HOST", "127.0.0.1")
         self.valkey_port = valkey_port or int(os.getenv("VALKEY_PORT", "6379"))
         self.valkey_db = valkey_db if valkey_db is not None else int(os.getenv("VALKEY_DB", "0"))
-        self.mongo_uri = mongo_uri or os.getenv("MONGO_URI", "mongodb://localhost:27017")
+        self.mongo_uri = mongo_uri or os.getenv("MONGO_URI", "mongodb://admin:adminpassword@127.0.0.1:27017/?authSource=admin")
         self.mongo_db = mongo_db or os.getenv("MONGO_DB", "security")
         self.mongo_collection = mongo_collection or os.getenv("MONGO_COLLECTION", "rules")
 
@@ -399,8 +399,7 @@ class TraceConsumer:
             except Exception:
                 pass
 
-            if not sigma_alert_ids:
-                return {}
+            # 시그마 매칭이 없어도 카드 생성을 계속 진행하여 최소 이벤트를 생성한다
 
             # 최종 누적치로 재계산
             try:
