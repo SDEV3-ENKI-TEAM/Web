@@ -379,6 +379,7 @@ class TraceConsumer:
                 tags = span.get("tags", [])
                 # OTLP attributes를 tags와 병합
                 if isinstance(span.get("attributes"), list):
+                    attr_map = {}
                     converted_tags = []
                     for attr in span.get("attributes", []):
                         try:
@@ -403,8 +404,11 @@ class TraceConsumer:
                                                 value = first
                                     except Exception:
                                         value = None
-                            if key is not None and value is not None:
-                                converted_tags.append({"key": key, "value": value})
+                            if key is not None:
+                                # 원본 attributes 값을 보관(디버그용)
+                                attr_map[key] = val_obj
+                                if value is not None:
+                                    converted_tags.append({"key": key, "value": value})
                         except Exception:
                             continue
                     if converted_tags:
@@ -461,53 +465,96 @@ class TraceConsumer:
                         except Exception:
                             value = None
 
-                    # 디버그: sigma 관련 태그 로깅
+                    # 디버그: sigma 관련 태그 로깅 (원본 출력 포함)
                     try:
                         if key.startswith("sigma"):
-                            val_preview = value if not isinstance(value, (dict, list)) else str(type(value))
+                            def _preview(obj):
+                                try:
+                                    s = json.dumps(obj, ensure_ascii=False) if not isinstance(obj, str) else obj
+                                except Exception:
+                                    s = str(obj)
+                                if s is None:
+                                    return None
+                                s = str(s)
+                                return (s[:500] + "...") if len(s) > 500 else s
+                            val_preview = _preview(value)
+                            raw_tag_preview = _preview(raw_value)
+                            raw_attr_preview = None
+                            try:
+                                if 'attr_map' in locals() and isinstance(attr_map, dict) and key in attr_map:
+                                    raw_attr_preview = _preview(attr_map.get(key))
+                            except Exception:
+                                pass
+                            logger.info(f"[SigmaRaw] trace_id={trace_id} spanId={span_id} tag={key} raw_tag={raw_tag_preview} raw_attr={raw_attr_preview}")
                             logger.info(f"[SigmaDebug] trace_id={trace_id} spanId={span_id} tag={key} value_preview={val_preview}")
                     except Exception:
                         pass
 
-                    # sigma 룰 ID 매칭 (여러 alias/다중 값 지원)
+                    # sigma 룰 ID 매칭 (여러 alias 지원)
                     if key in sigma_key_aliases or key.startswith("sigma.alert"):
-                        matched_ids = []
-                        # raw_value가 배열 형태라면 모든 값을 수집
-                        if isinstance(raw_value, dict) and "arrayValue" in raw_value:
-                            try:
-                                arr = raw_value.get("arrayValue", {}).get("values", [])
-                                for elem in arr or []:
-                                    if isinstance(elem, dict):
-                                        rid = elem.get("stringValue") or elem.get("intValue") or elem.get("boolValue")
-                                    else:
-                                        rid = elem
-                                    if rid is not None:
-                                        matched_ids.append(str(rid))
-                            except Exception:
-                                matched_ids = []
-                        elif isinstance(raw_value, dict) and "values" in raw_value and isinstance(raw_value.get("values"), list):
-                            try:
-                                for elem in raw_value.get("values"):
-                                    if isinstance(elem, dict):
-                                        rid = elem.get("stringValue") or elem.get("intValue") or elem.get("boolValue")
-                                    else:
-                                        rid = elem
-                                    if rid is not None:
-                                        matched_ids.append(str(rid))
-                            except Exception:
-                                matched_ids = []
-                        else:
-                            if value not in (None, ""):
-                                matched_ids = [str(value)]
+                        # 다중 값 지원: arrayValue.values[], values[], 리스트, 단일 값 모두 처리
+                        candidate_ids = []
+                        try:
+                            if isinstance(raw_value, dict):
+                                if "arrayValue" in raw_value:
+                                    arr = raw_value.get("arrayValue", {}).get("values", []) or []
+                                    for item in arr:
+                                        if isinstance(item, dict):
+                                            rid = item.get("stringValue") or item.get("intValue") or item.get("boolValue")
+                                        else:
+                                            rid = item
+                                        if rid is not None and rid != "":
+                                            candidate_ids.append(str(rid))
+                                elif "values" in raw_value and isinstance(raw_value.get("values"), list):
+                                    for item in raw_value.get("values"):
+                                        if isinstance(item, dict):
+                                            rid = item.get("stringValue") or item.get("intValue") or item.get("boolValue")
+                                        else:
+                                            rid = item
+                                        if rid is not None and rid != "":
+                                            candidate_ids.append(str(rid))
+                            if not candidate_ids:
+                                if isinstance(value, list):
+                                    for item in value:
+                                        rid = item
+                                        if isinstance(item, dict):
+                                            rid = item.get("stringValue") or item.get("intValue") or item.get("boolValue")
+                                        if rid is not None and rid != "":
+                                            candidate_ids.append(str(rid))
+                                else:
+                                    if value is not None and value != "":
+                                        candidate_ids.append(str(value))
+                                # OpenSearch 스타일: 문자열에 JSON 배열이 들어있는 경우 처리
+                                if isinstance(value, str):
+                                    v = value.strip()
+                                    if (v.startswith("[") and v.endswith("]")) or (v.startswith("\"") and v.endswith("\"")):
+                                        try:
+                                            parsed = json.loads(v)
+                                            if isinstance(parsed, list):
+                                                for item in parsed:
+                                                    rid = item
+                                                    if isinstance(item, dict):
+                                                        rid = item.get("stringValue") or item.get("intValue") or item.get("boolValue")
+                                                    if rid is not None and rid != "":
+                                                        candidate_ids.append(str(rid))
+                                        except Exception:
+                                            pass
+                        except Exception:
+                            # fallback: 단일 값만 시도
+                            if value is not None and value != "":
+                                candidate_ids.append(str(value))
 
-                        for rid in matched_ids:
+                        added_any = False
+                        for rid in candidate_ids:
                             sigma_alert_ids.add((span_id, rid))
                             unique_rule_ids.add(rid)
                             try:
                                 self.valkey_client.sadd(seen_rules_key, rid)
                             except Exception:
                                 pass
-                        if matched_ids:
+                            added_any = True
+
+                        if added_any:
                             if span_id:
                                 try:
                                     added = self.valkey_client.sadd(seen_key, span_id)
