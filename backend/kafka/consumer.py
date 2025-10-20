@@ -424,25 +424,42 @@ class TraceConsumer:
                         continue
                     raw_value = tag.get("value", "")
                     value = raw_value
-                    # 태그 value가 OTLP 스타일(dict)인 경우 보정
+                    # 태그 value가 다양한 OTLP 형태일 수 있으므로 최대한 보정
                     if isinstance(raw_value, dict):
-                        if "stringValue" in raw_value:
-                            value = raw_value.get("stringValue")
-                        elif "intValue" in raw_value:
-                            value = raw_value.get("intValue")
-                        elif "boolValue" in raw_value:
-                            value = raw_value.get("boolValue")
-                        elif "arrayValue" in raw_value:
-                            try:
+                        try:
+                            # 1) direct scalar
+                            if "stringValue" in raw_value:
+                                value = raw_value.get("stringValue")
+                            elif "intValue" in raw_value:
+                                value = raw_value.get("intValue")
+                            elif "boolValue" in raw_value:
+                                value = raw_value.get("boolValue")
+                            # 2) arrayValue 또는 values 루트
+                            elif "arrayValue" in raw_value:
                                 arr = raw_value.get("arrayValue", {}).get("values", [])
                                 if arr:
                                     first = arr[0] or {}
-                                    if isinstance(first, dict):
-                                        value = first.get("stringValue") or first.get("intValue") or first.get("boolValue")
-                                    else:
-                                        value = first
-                            except Exception:
-                                value = None
+                                    value = (first.get("stringValue") if isinstance(first, dict) else first) or \
+                                            (first.get("intValue") if isinstance(first, dict) else None) or \
+                                            (first.get("boolValue") if isinstance(first, dict) else None)
+                            elif "values" in raw_value and isinstance(raw_value.get("values"), list):
+                                arr = raw_value.get("values")
+                                if arr:
+                                    first = arr[0] or {}
+                                    value = (first.get("stringValue") if isinstance(first, dict) else first) or \
+                                            (first.get("intValue") if isinstance(first, dict) else None) or \
+                                            (first.get("boolValue") if isinstance(first, dict) else None)
+                        except Exception:
+                            value = None
+                    elif isinstance(raw_value, list):
+                        try:
+                            first = raw_value[0] if raw_value else None
+                            if isinstance(first, dict):
+                                value = first.get("stringValue") or first.get("intValue") or first.get("boolValue")
+                            else:
+                                value = first
+                        except Exception:
+                            value = None
 
                     # 디버그: sigma 관련 태그 로깅
                     try:
