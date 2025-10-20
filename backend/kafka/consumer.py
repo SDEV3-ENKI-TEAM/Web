@@ -410,7 +410,27 @@ class TraceConsumer:
                     key = tag.get("key")
                     if not isinstance(key, str):
                         continue
-                    value = tag.get("value", "")
+                    raw_value = tag.get("value", "")
+                    value = raw_value
+                    # 태그 value가 OTLP 스타일(dict)인 경우 보정
+                    if isinstance(raw_value, dict):
+                        if "stringValue" in raw_value:
+                            value = raw_value.get("stringValue")
+                        elif "intValue" in raw_value:
+                            value = raw_value.get("intValue")
+                        elif "boolValue" in raw_value:
+                            value = raw_value.get("boolValue")
+                        elif "arrayValue" in raw_value:
+                            try:
+                                arr = raw_value.get("arrayValue", {}).get("values", [])
+                                if arr:
+                                    first = arr[0] or {}
+                                    if isinstance(first, dict):
+                                        value = first.get("stringValue") or first.get("intValue") or first.get("boolValue")
+                                    else:
+                                        value = first
+                            except Exception:
+                                value = None
 
                     # sigma 룰 ID 매칭 (여러 alias 지원)
                     if key in sigma_key_aliases or key.startswith("sigma.alert"):
