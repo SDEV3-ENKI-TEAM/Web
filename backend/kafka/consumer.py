@@ -469,27 +469,56 @@ class TraceConsumer:
                     except Exception:
                         pass
 
-                    # sigma 룰 ID 매칭 (여러 alias 지원)
+                    # sigma 룰 ID 매칭 (여러 alias/다중 값 지원)
                     if key in sigma_key_aliases or key.startswith("sigma.alert"):
-                        rule_id = value
-                        if rule_id:
-                            sigma_alert_ids.add((span_id, rule_id))
-                            unique_rule_ids.add(rule_id)
+                        matched_ids = []
+                        # raw_value가 배열 형태라면 모든 값을 수집
+                        if isinstance(raw_value, dict) and "arrayValue" in raw_value:
                             try:
-                                self.valkey_client.sadd(seen_rules_key, rule_id)
+                                arr = raw_value.get("arrayValue", {}).get("values", [])
+                                for elem in arr or []:
+                                    if isinstance(elem, dict):
+                                        rid = elem.get("stringValue") or elem.get("intValue") or elem.get("boolValue")
+                                    else:
+                                        rid = elem
+                                    if rid is not None:
+                                        matched_ids.append(str(rid))
+                            except Exception:
+                                matched_ids = []
+                        elif isinstance(raw_value, dict) and "values" in raw_value and isinstance(raw_value.get("values"), list):
+                            try:
+                                for elem in raw_value.get("values"):
+                                    if isinstance(elem, dict):
+                                        rid = elem.get("stringValue") or elem.get("intValue") or elem.get("boolValue")
+                                    else:
+                                        rid = elem
+                                    if rid is not None:
+                                        matched_ids.append(str(rid))
+                            except Exception:
+                                matched_ids = []
+                        else:
+                            if value not in (None, ""):
+                                matched_ids = [str(value)]
+
+                        for rid in matched_ids:
+                            sigma_alert_ids.add((span_id, rid))
+                            unique_rule_ids.add(rid)
+                            try:
+                                self.valkey_client.sadd(seen_rules_key, rid)
                             except Exception:
                                 pass
-                        if span_id:
-                            try:
-                                added = self.valkey_client.sadd(seen_key, span_id)
-                                if added == 1:
+                        if matched_ids:
+                            if span_id:
+                                try:
+                                    added = self.valkey_client.sadd(seen_key, span_id)
+                                    if added == 1:
+                                        matched_span_count += 1
+                                except Exception:
                                     matched_span_count += 1
-                            except Exception:
+                            else:
                                 matched_span_count += 1
-                        else:
-                            matched_span_count += 1
-                        span_has_alert = True
-                        break
+                            span_has_alert = True
+                            break
                     # sigma 제목만 존재하는 경우도 매칭으로 간주 (ID가 없으면 제목을 대체 키로 사용)
                     elif key in sigma_title_keys and value:
                         title_as_id = str(value)
