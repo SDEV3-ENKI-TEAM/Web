@@ -324,6 +324,12 @@ class TraceConsumer:
             trace_id = trace_data["trace_id"]
             spans = trace_data.get("spans", [])
 
+            # 디버그: 트레이스 및 스팬 개요
+            try:
+                logger.info(f"[SigmaDebug] trace_id={trace_id} spans_count={len(spans)}")
+            except Exception:
+                pass
+
             first_span = spans[0] if spans else {}
             operation_name = first_span.get("operationName", "")
 
@@ -404,6 +410,12 @@ class TraceConsumer:
                     if converted_tags:
                         # 기존 tags 뒤에 병합 (동일 key 중복은 허용; 아래 로직에서 필요한 키만 사용)
                         tags = list(tags) + converted_tags
+                        try:
+                            sigma_like_keys = [t.get("key") for t in converted_tags if isinstance(t.get("key"), str) and t.get("key").startswith("sigma")]
+                            if sigma_like_keys:
+                                logger.info(f"[SigmaDebug] trace_id={trace_id} spanId={span.get('spanId')} converted_sigma_keys={sigma_like_keys}")
+                        except Exception:
+                            pass
                 span_has_alert = False
                 span_id = span.get("spanId")
                 for tag in tags:
@@ -431,6 +443,14 @@ class TraceConsumer:
                                         value = first
                             except Exception:
                                 value = None
+
+                    # 디버그: sigma 관련 태그 로깅
+                    try:
+                        if key.startswith("sigma"):
+                            val_preview = value if not isinstance(value, (dict, list)) else str(type(value))
+                            logger.info(f"[SigmaDebug] trace_id={trace_id} spanId={span_id} tag={key} value_preview={val_preview}")
+                    except Exception:
+                        pass
 
                     # sigma 룰 ID 매칭 (여러 alias 지원)
                     if key in sigma_key_aliases or key.startswith("sigma.alert"):
@@ -478,6 +498,14 @@ class TraceConsumer:
 
                 if span_has_alert:
                     continue
+            # 디버그: 시그마 매칭 집계 결과
+            try:
+                if not sigma_alert_ids:
+                    logger.info(f"[SigmaDebug] trace_id={trace_id} no_sigma_match spans={len(spans)}")
+                else:
+                    logger.info(f"[SigmaDebug] trace_id={trace_id} matched_rule_ids={list({rid for _, rid in sigma_alert_ids})}")
+            except Exception:
+                pass
             try:
                 self.valkey_client.expire(seen_key, 86400)
             except Exception:
