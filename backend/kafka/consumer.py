@@ -331,6 +331,15 @@ class TraceConsumer:
             os_type = "windows"
             user_id = None
 
+            sigma_key_aliases = {
+                "sigma.alert",
+                "sigma@alert",
+                "sigma.rule_id",
+                "sigma.ruleid",
+                "sigma_rule_id",
+            }
+            sigma_title_keys = {"sigma.rule_title", "sigma_rule_title"}
+
             for span in spans:
                 tags = span.get("tags", [])
                 for tag in tags:
@@ -398,8 +407,14 @@ class TraceConsumer:
                 span_has_alert = False
                 span_id = span.get("spanId")
                 for tag in tags:
-                    if tag.get("key") in ("sigma.alert", "sigma@alert"):
-                        rule_id = tag.get("value", "")
+                    key = tag.get("key")
+                    if not isinstance(key, str):
+                        continue
+                    value = tag.get("value", "")
+
+                    # sigma 룰 ID 매칭 (여러 alias 지원)
+                    if key in sigma_key_aliases or key.startswith("sigma.alert"):
+                        rule_id = value
                         if rule_id:
                             sigma_alert_ids.add((span_id, rule_id))
                             unique_rule_ids.add(rule_id)
@@ -418,7 +433,27 @@ class TraceConsumer:
                             matched_span_count += 1
                         span_has_alert = True
                         break
-                    elif tag.get("key") == "error" and tag.get("value") is True:
+                    # sigma 제목만 존재하는 경우도 매칭으로 간주 (ID가 없으면 제목을 대체 키로 사용)
+                    elif key in sigma_title_keys and value:
+                        title_as_id = str(value)
+                        sigma_alert_ids.add((span_id, title_as_id))
+                        unique_rule_ids.add(title_as_id)
+                        try:
+                            self.valkey_client.sadd(seen_rules_key, title_as_id)
+                        except Exception:
+                            pass
+                        if span_id:
+                            try:
+                                added = self.valkey_client.sadd(seen_key, span_id)
+                                if added == 1:
+                                    matched_span_count += 1
+                            except Exception:
+                                matched_span_count += 1
+                        else:
+                            matched_span_count += 1
+                        span_has_alert = True
+                        break
+                    elif key == "error" and value is True:
                         has_error = True
 
                 if span_has_alert:
