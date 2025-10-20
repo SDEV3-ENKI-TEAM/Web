@@ -23,6 +23,60 @@ def _get_attr_value(attr_value_obj: Dict[str, Any]) -> Any:
                 except Exception:
                     return value
             return value
+
+    # Support arrayValue (e.g., sigma.alert with multiple IDs)
+    if "arrayValue" in attr_value_obj:
+        try:
+            values = attr_value_obj.get("arrayValue", {}).get("values", []) or []
+            extracted = []
+            for item in values:
+                if not isinstance(item, dict):
+                    extracted.append(item)
+                    continue
+                if "stringValue" in item:
+                    extracted.append(item.get("stringValue"))
+                elif "intValue" in item:
+                    try:
+                        extracted.append(int(item.get("intValue")))
+                    except Exception:
+                        extracted.append(item.get("intValue"))
+                elif "boolValue" in item:
+                    extracted.append(item.get("boolValue"))
+                elif "doubleValue" in item:
+                    extracted.append(item.get("doubleValue"))
+            # Return list if multiple, single value if only one
+            if len(extracted) == 1:
+                return extracted[0]
+            return extracted
+        except Exception:
+            return None
+
+    # Some exporters may put list directly under 'values'
+    if "values" in attr_value_obj and isinstance(attr_value_obj.get("values"), list):
+        try:
+            values = attr_value_obj.get("values") or []
+            extracted = []
+            for item in values:
+                if not isinstance(item, dict):
+                    extracted.append(item)
+                    continue
+                if "stringValue" in item:
+                    extracted.append(item.get("stringValue"))
+                elif "intValue" in item:
+                    try:
+                        extracted.append(int(item.get("intValue")))
+                    except Exception:
+                        extracted.append(item.get("intValue"))
+                elif "boolValue" in item:
+                    extracted.append(item.get("boolValue"))
+                elif "doubleValue" in item:
+                    extracted.append(item.get("doubleValue"))
+            if len(extracted) == 1:
+                return extracted[0]
+            return extracted
+        except Exception:
+            return None
+
     return None
 
 
