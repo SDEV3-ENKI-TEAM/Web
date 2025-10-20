@@ -362,7 +362,8 @@ class TraceConsumer:
             seen_rules_key = f"seen_rule_ids:{trace_id}"
             for span in spans:
                 tags = span.get("tags", [])
-                if (not tags) and isinstance(span.get("attributes"), list):
+                # OTLP attributes를 tags와 병합
+                if isinstance(span.get("attributes"), list):
                     converted_tags = []
                     for attr in span.get("attributes", []):
                         try:
@@ -379,7 +380,6 @@ class TraceConsumer:
                                 elif "arrayValue" in val_obj:
                                     try:
                                         arr = val_obj.get("arrayValue", {}).get("values", [])
-                                        # sigma.alert 등 단일 값 우선 사용
                                         if arr:
                                             first = arr[0] or {}
                                             if isinstance(first, dict):
@@ -392,7 +392,9 @@ class TraceConsumer:
                                 converted_tags.append({"key": key, "value": value})
                         except Exception:
                             continue
-                    tags = converted_tags
+                    if converted_tags:
+                        # 기존 tags 뒤에 병합 (동일 key 중복은 허용; 아래 로직에서 필요한 키만 사용)
+                        tags = list(tags) + converted_tags
                 span_has_alert = False
                 span_id = span.get("spanId")
                 for tag in tags:
