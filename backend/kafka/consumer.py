@@ -362,6 +362,37 @@ class TraceConsumer:
             seen_rules_key = f"seen_rule_ids:{trace_id}"
             for span in spans:
                 tags = span.get("tags", [])
+                if (not tags) and isinstance(span.get("attributes"), list):
+                    converted_tags = []
+                    for attr in span.get("attributes", []):
+                        try:
+                            key = attr.get("key")
+                            val_obj = attr.get("value", {}) or {}
+                            value = None
+                            if isinstance(val_obj, dict):
+                                if "stringValue" in val_obj:
+                                    value = val_obj.get("stringValue")
+                                elif "intValue" in val_obj:
+                                    value = val_obj.get("intValue")
+                                elif "boolValue" in val_obj:
+                                    value = val_obj.get("boolValue")
+                                elif "arrayValue" in val_obj:
+                                    try:
+                                        arr = val_obj.get("arrayValue", {}).get("values", [])
+                                        # sigma.alert 등 단일 값 우선 사용
+                                        if arr:
+                                            first = arr[0] or {}
+                                            if isinstance(first, dict):
+                                                value = first.get("stringValue") or first.get("intValue") or first.get("boolValue")
+                                            else:
+                                                value = first
+                                    except Exception:
+                                        value = None
+                            if key is not None and value is not None:
+                                converted_tags.append({"key": key, "value": value})
+                        except Exception:
+                            continue
+                    tags = converted_tags
                 span_has_alert = False
                 span_id = span.get("spanId")
                 for tag in tags:

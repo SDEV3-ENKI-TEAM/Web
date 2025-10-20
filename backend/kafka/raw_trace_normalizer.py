@@ -141,17 +141,17 @@ def normalize_and_send(producer: KafkaProducer, out_topic: str, raw_message: Dic
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Normalize OTLP raw_trace to traces topic")
+    parser = argparse.ArgumentParser(description="Normalize OTLP tmp_trace to traces topic")
     parser.add_argument("--kafka-broker", default="172.31.11.219:19092", help="Kafka broker address")
-    parser.add_argument("--in-topic", default="raw_trace", help="Input topic with OTLP data")
+    parser.add_argument("--in-topic", default="tmp_trace", help="Input topic with OTLP data")
     parser.add_argument("--out-topic", default="traces", help="Output topic for normalized traces")
-    parser.add_argument("--group-id", default="raw_trace_normalizer_group", help="Kafka consumer group id")
+    parser.add_argument("--group-id", default="tmp_trace_normalizer_group", help="Kafka consumer group id")
     parser.add_argument("--log-level", default="INFO", help="Logging level")
 
     args = parser.parse_args()
     logging.getLogger().setLevel(getattr(logging, args.log_level.upper(), logging.INFO))
 
-    logger.info("Starting raw_trace normalizer")
+    logger.info("Starting tmp_trace normalizer")
     logger.info(f"Kafka: {args.kafka_broker}, in={args.in_topic}, out={args.out_topic}")
 
     consumer = KafkaConsumer(
