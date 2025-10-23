@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { useRouter } from "next/navigation";
 import { EventDetail as EventDetailType } from "@/types/event";
 
 interface EventDetailProps {
@@ -12,6 +13,7 @@ export default function EventDetail({
   event,
   title = "이벤트 분석",
 }: EventDetailProps) {
+  const router = useRouter();
   if (!event) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -131,12 +133,24 @@ export default function EventDetail({
       </div>
 
       {/* Fixed Action Buttons */}
-      <div className="flex justify-between space-x-3 flex-shrink-0 pt-4 mt-4 border-t border-slate-700/50 no-drag">
-        <button className="flex-1 bg-slate-700/50 hover:bg-slate-700/70 text-slate-300 border border-slate-600/50 hover:border-slate-500 text-xs px-3 py-2 rounded font-mono uppercase tracking-wide transition-all duration-200">
-          무시하기
-        </button>
-        <button className="flex-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 hover:border-red-500/50 text-xs px-3 py-2 rounded font-mono uppercase tracking-wide transition-all duration-200">
-          조치 취하기
+      <div
+        className="flex justify-between space-x-3 flex-shrink-0 pt-4 mt-4 border-t border-slate-700/50 no-drag"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            if (event.traceID) {
+              router.push(`/alarms?trace_id=${event.traceID}`);
+            }
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onDragStart={(e) => e.preventDefault()}
+          className="flex-1 bg-slate-700/50 hover:bg-slate-700/70 text-slate-300 border border-slate-600/50 hover:border-slate-500 text-xs px-3 py-2 rounded font-mono uppercase tracking-wide transition-all duration-200 select-none"
+          style={{ pointerEvents: "auto" }}
+        >
+          확인하기
         </button>
       </div>
 

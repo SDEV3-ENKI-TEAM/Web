@@ -199,11 +199,6 @@ export default function AgentsPage() {
         >
           <div className="bg-slate-900/70 backdrop-blur-md border border-slate-700/50 rounded-lg overflow-hidden">
             <div className="flex items-center gap-2 px-4 py-3 bg-slate-800/80 border-b border-slate-700/50">
-              <div className="flex gap-2">
-                <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                <div className="w-3 h-3 rounded-full bg-green-500"></div>
-              </div>
               <div className="flex-1 text-center">
                 <span className="text-slate-400 text-sm font-mono">
                   PC 보안 관리 - 모든 컴퓨터 상태 확인 중

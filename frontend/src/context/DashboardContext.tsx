@@ -35,6 +35,7 @@ export interface DashboardWidget {
 
 interface DashboardContextType {
   widgets: DashboardWidget[];
+  isLoaded: boolean;
   toggleWidget: (id: string) => void;
   updateWidgetPosition: (
     id: string,
@@ -72,7 +73,7 @@ const defaultWidgets: DashboardWidget[] = [
     name: "시계열 그래프",
     type: "timeseries",
     visible: true,
-    position: { x: 0, y: 3, w: 8, h: 4 },
+    position: { x: 0, y: 3, w: 8, h: 6 },
     config: { title: "이상 탐지 점수 추이", color: "#4a5568" },
   },
   {
@@ -96,7 +97,7 @@ const defaultWidgets: DashboardWidget[] = [
     name: "이벤트 상세",
     type: "eventdetail",
     visible: true,
-    position: { x: 8, y: 10, w: 4, h: 5 },
+    position: { x: 8, y: 10, w: 4, h: 7 },
     config: { title: "상세 정보" },
   },
 ];
@@ -145,26 +146,40 @@ const availableWidgetTypes = [
     defaultSize: { w: 8, h: 4 },
   },
 ];
+const getInitialWidgets = (): DashboardWidget[] => {
+  if (typeof window === "undefined") {
+    return defaultWidgets;
+  }
+
+  const saved = localStorage.getItem("dashboard-layout");
+  if (saved) {
+    try {
+      const parsedWidgets = JSON.parse(saved);
+      if (Array.isArray(parsedWidgets) && parsedWidgets.length > 0) {
+        return parsedWidgets;
+      }
+    } catch (error) {
+      console.error("Failed to load dashboard layout:", error);
+    }
+  }
+  return defaultWidgets;
+};
 
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
-  const [widgets, setWidgets] = useState<DashboardWidget[]>(defaultWidgets);
+  const [widgets, setWidgets] = useState<DashboardWidget[]>([]);
+  const [isLoaded, setIsLoaded] = useState(false);
 
-  // Load from localStorage on mount
   useEffect(() => {
-    const saved = localStorage.getItem("dashboard-layout");
-    if (saved) {
-      try {
-        setWidgets(JSON.parse(saved));
-      } catch (error) {
-        console.error("Failed to load dashboard layout:", error);
-      }
-    }
+    const initialWidgets = getInitialWidgets();
+    setWidgets(initialWidgets);
+    setIsLoaded(true);
   }, []);
 
-  // Save to localStorage when widgets change
   useEffect(() => {
-    localStorage.setItem("dashboard-layout", JSON.stringify(widgets));
-  }, [widgets]);
+    if (widgets.length > 0 && isLoaded) {
+      localStorage.setItem("dashboard-layout", JSON.stringify(widgets));
+    }
+  }, [widgets, isLoaded]);
 
   const toggleWidget = useCallback((id: string) => {
     setWidgets((prev) =>
@@ -285,6 +300,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const contextValue = useMemo(
     () => ({
       widgets,
+      isLoaded,
       toggleWidget,
       updateWidgetPosition,
       updateWidgetConfig,
@@ -297,6 +313,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       widgets,
+      isLoaded,
       toggleWidget,
       updateWidgetPosition,
       updateWidgetConfig,

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { useSSE } from "@/contexts/SSEContext";
 import { useAuth } from "@/context/AuthContext";
@@ -54,6 +54,7 @@ export default function AlarmsPage() {
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(alarms.length);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { logout } = useAuth();
 
   const [severityFilters, setSeverityFilters] = useState<string[]>([]);
@@ -67,6 +68,14 @@ export default function AlarmsPage() {
   useEffect(() => {
     setTotal(alarms.length);
   }, [alarms.length]);
+
+  // trace_id 쿼리 파라미터 처리
+  useEffect(() => {
+    const traceId = searchParams.get("trace_id");
+    if (traceId) {
+      setSearch(traceId);
+    }
+  }, [searchParams]);
 
   function sortAlarms(list: Alarm[]) {
     return [...list].sort((a, b) => {

@@ -35,17 +35,13 @@ function SidebarComponent() {
   const mainNavItems: Array<{
     href: string;
     label: string;
-    command: string;
     icon: React.ReactNode;
     onClick?: (e: React.MouseEvent) => void;
-    status?: string;
     description?: string;
   }> = [
     {
       href: "/dashboard",
       label: "홈 대시보드",
-      command: "전체 현황 보기",
-      status: "ACTIVE",
       description: "보안 상황을 한눈에 확인하세요",
       icon: (
         <svg
@@ -66,8 +62,6 @@ function SidebarComponent() {
     {
       href: "/alarms",
       label: "보안 알림",
-      command: "위험 알림 확인",
-      status: "MONITORING",
       description: "의심스러운 활동이나 문제를 확인하세요",
       icon: (
         <svg
@@ -88,8 +82,6 @@ function SidebarComponent() {
     {
       href: "/settings",
       label: "설정",
-      command: "환경 설정",
-      status: "IDLE",
       description: "사용자 설정 및 환경을 관리하세요",
       icon: (
         <svg
@@ -159,15 +151,6 @@ function SidebarComponent() {
     >
       {/* Terminal Header */}
       <div className="bg-slate-800/70 border-b border-slate-700/50 p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-3 h-3 rounded-full bg-red-500"></div>
-          <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-          <div className="w-3 h-3 rounded-full bg-green-500"></div>
-          <div className="flex-1 text-center">
-            <span className="text-slate-400 text-sm">보안 네비게이션</span>
-          </div>
-        </div>
-
         {/* Logo/Brand */}
         <div className="text-center">
           <div className="flex items-center justify-center gap-3 mb-2">
@@ -258,24 +241,8 @@ function SidebarComponent() {
                         >
                           {item.label}
                         </div>
-                        <div className="text-xs text-slate-600 font-mono truncate">
-                          {item.command}
-                        </div>
                       </div>
                     </div>
-
-                    {item.status && (
-                      <div className="flex items-center gap-1">
-                        {getStatusDot(item.status)}
-                        <span
-                          className={`text-xs w-20 text-center inline-block ${getStatusColor(
-                            item.status
-                          )}`}
-                        >
-                          {item.status}
-                        </span>
-                      </div>
-                    )}
                   </button>
                 ) : (
                   <Link
@@ -302,24 +269,8 @@ function SidebarComponent() {
                         >
                           {item.label}
                         </div>
-                        <div className="text-xs text-slate-600 font-mono truncate">
-                          {item.command}
-                        </div>
                       </div>
                     </div>
-
-                    {item.status && (
-                      <div className="flex items-center gap-1">
-                        {getStatusDot(item.status)}
-                        <span
-                          className={`text-xs w-20 text-center inline-block ${getStatusColor(
-                            item.status
-                          )}`}
-                        >
-                          {item.status}
-                        </span>
-                      </div>
-                    )}
                   </Link>
                 )}
               </motion.li>

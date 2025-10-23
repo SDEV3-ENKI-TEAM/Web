@@ -12,16 +12,8 @@ import TimeSeriesChart from "@/components/TimeSeriesChart";
 import DonutChart from "@/components/DonutChart";
 import EventTable from "@/components/EventTable";
 import EventDetail from "@/components/EventDetail";
-import BarChart from "@/components/BarChart";
-import HeatMap from "@/components/HeatMap";
 import DashboardSettings from "@/components/DashboardSettings";
-import {
-  fetchStats,
-  fetchTimeseries,
-  fetchBarChart,
-  fetchHeatMap,
-  fetchInfiniteAlarms,
-} from "@/lib/api";
+import { fetchStats, fetchTimeseries, fetchInfiniteAlarms } from "@/lib/api";
 import { Event, Stats, EventDetail as EventDetailType } from "@/types/event";
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
@@ -39,8 +31,6 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeseriesData, setTimeseriesData] = useState<any[]>([]);
-  const [barChartData, setBarChartData] = useState<any[]>([]);
-  const [heatMapData, setHeatMapData] = useState<any[]>([]);
 
   const [infiniteAlarms, setInfiniteAlarms] = useState<any[]>([]);
   const [infiniteLoading, setInfiniteLoading] = useState(false);
@@ -49,7 +39,8 @@ export default function Dashboard() {
 
   const { currentUser, logout } = useAuth();
   const router = useRouter();
-  const { widgets } = useDashboard();
+  const { widgets, isLoaded, deleteWidget, updateWidgetPosition } =
+    useDashboard();
 
   useEffect(() => {
     const loadData = async () => {
@@ -123,34 +114,6 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    const fetchBarChartData = async () => {
-      try {
-        const data = await fetchBarChart();
-        setBarChartData(data);
-      } catch (err) {
-        console.error("바 차트 데이터 로드 실패:", err);
-        setBarChartData([]);
-      }
-    };
-
-    fetchBarChartData();
-  }, []);
-
-  useEffect(() => {
-    const fetchHeatMapData = async () => {
-      try {
-        const data = await fetchHeatMap();
-        setHeatMapData(data);
-      } catch (err) {
-        console.error("히트맵 데이터 로드 실패:", err);
-        setHeatMapData([]);
-      }
-    };
-
-    fetchHeatMapData();
-  }, []);
-
   const handleLogout = () => {
     logout();
     router.push("/login");
@@ -170,6 +133,7 @@ export default function Dashboard() {
         id: event.id,
         date: event.timestamp,
         incident: event.event,
+        traceID: event.traceID,
         timestamp: event.timestamp,
         user: event.user,
         host: event.host || "",
@@ -204,20 +168,24 @@ export default function Dashboard() {
 
   const WidgetWrapper = useCallback(
     ({ children, title, onRemove, widgetType }: any) => (
-      <div className="h-full bg-slate-900/50 backdrop-blur-xl border border-slate-700/50 rounded-lg overflow-hidden font-mono relative z-0">
+      <div className="w-full h-full bg-slate-900/50 backdrop-blur-xl border border-slate-700/50 rounded-lg font-mono relative z-0 flex flex-col overflow-hidden">
         {/* Terminal Header */}
         <div className="bg-slate-800/70 border-b border-slate-700/50 px-4 py-2 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-red-500"></div>
-            <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-            <div className="w-3 h-3 rounded-full bg-green-500"></div>
             <span className="text-slate-400 text-sm ml-2">
               {title}.terminal
             </span>
           </div>
           <button
-            onClick={onRemove}
-            className="text-red-400 hover:text-red-300 transition-colors text-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onRemove();
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onDragStart={(e) => e.preventDefault()}
+            className="text-red-400 hover:text-red-300 transition-colors text-sm relative z-10 px-2 py-1 rounded hover:bg-red-500/10 select-none"
+            style={{ pointerEvents: "auto" }}
           >
             ✕
           </button>
@@ -231,7 +199,9 @@ export default function Dashboard() {
         </div>
 
         {/* Widget Content */}
-        <div className="p-4 h-full overflow-hidden">{children}</div>
+        <div className="p-4 flex-1 flex flex-col min-h-0 overflow-hidden">
+          {children}
+        </div>
       </div>
     ),
     []
@@ -252,7 +222,7 @@ export default function Dashboard() {
 
   const statsWidget = useMemo(
     () => (
-      <div className="grid grid-cols-2 gap-4 h-full">
+      <div className="grid grid-cols-2 gap-4 flex-1 min-h-0 w-full h-full overflow-hidden">
         <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
           <div className="text-slate-400 text-xs mb-2">전체 활동</div>
           <div className="text-3xl font-bold text-blue-400 mb-1">
@@ -273,13 +243,13 @@ export default function Dashboard() {
   const eventTableWidget = useMemo(
     () =>
       loading ? (
-        <div className="flex items-center justify-center h-full">
+        <div className="flex items-center justify-center flex-1 min-h-0">
           <div className="text-green-400 font-mono text-sm animate-pulse">
             이벤트 정보를 불러오는 중...
           </div>
         </div>
       ) : error ? (
-        <div className="flex items-center justify-center h-full">
+        <div className="flex items-center justify-center flex-1 min-h-0">
           <div className="text-red-400 font-mono text-sm">오류: {error}</div>
         </div>
       ) : (
@@ -344,7 +314,7 @@ export default function Dashboard() {
           return (
             <WidgetWrapper
               title="시스템 현황"
-              onRemove={() => {}}
+              onRemove={() => deleteWidget(widget.id)}
               widgetType="stats"
             >
               {statsWidget}
@@ -354,7 +324,7 @@ export default function Dashboard() {
           return (
             <WidgetWrapper
               title="시간별 추이"
-              onRemove={() => {}}
+              onRemove={() => deleteWidget(widget.id)}
               widgetType="timeseries"
             >
               <TimeSeriesChart data={timeseriesData} />
@@ -364,37 +334,17 @@ export default function Dashboard() {
           return (
             <WidgetWrapper
               title="위험 요소 분석"
-              onRemove={() => {}}
+              onRemove={() => deleteWidget(widget.id)}
               widgetType="donutchart"
             >
               <DonutChart />
-            </WidgetWrapper>
-          );
-        case "barchart":
-          return (
-            <WidgetWrapper
-              title="분류별 현황"
-              onRemove={() => {}}
-              widgetType="barchart"
-            >
-              <BarChart data={barChartData} />
-            </WidgetWrapper>
-          );
-        case "heatmap":
-          return (
-            <WidgetWrapper
-              title="상관관계 분석"
-              onRemove={() => {}}
-              widgetType="heatmap"
-            >
-              <HeatMap data={heatMapData} />
             </WidgetWrapper>
           );
         case "eventtable":
           return (
             <WidgetWrapper
               title="보안 이벤트 목록"
-              onRemove={() => {}}
+              onRemove={() => deleteWidget(widget.id)}
               widgetType="eventtable"
             >
               {eventTableWidget}
@@ -404,7 +354,7 @@ export default function Dashboard() {
           return (
             <WidgetWrapper
               title="이벤트 상세정보"
-              onRemove={() => {}}
+              onRemove={() => deleteWidget(widget.id)}
               widgetType="eventdetail"
             >
               {eventDetailWidget}
@@ -414,14 +364,7 @@ export default function Dashboard() {
           return null;
       }
     },
-    [
-      statsWidget,
-      eventTableWidget,
-      eventDetailWidget,
-      timeseriesData,
-      barChartData,
-      heatMapData,
-    ]
+    [statsWidget, eventTableWidget, eventDetailWidget, timeseriesData]
   );
 
   return (
@@ -431,23 +374,43 @@ export default function Dashboard() {
     >
       <div className="h-full relative z-10">
         {/* Grid Layout */}
-        <ResponsiveGridLayout
-          className="layout"
-          layouts={{ lg: currentLayout }}
-          breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
-          cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
-          rowHeight={60}
-          onLayoutChange={() => {}}
-          isDraggable={true}
-          isResizable={true}
-          margin={[16, 16]}
-        >
-          {widgets
-            .filter((widget) => widget.visible)
-            .map((widget) => (
-              <div key={widget.id}>{renderWidget(widget)}</div>
-            ))}
-        </ResponsiveGridLayout>
+        {isLoaded ? (
+          <ResponsiveGridLayout
+            className="layout"
+            layouts={{ lg: currentLayout }}
+            breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
+            cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
+            rowHeight={60}
+            onLayoutChange={(layout) => {
+              layout.forEach((item) => {
+                updateWidgetPosition(item.i, {
+                  x: item.x,
+                  y: item.y,
+                  w: item.w,
+                  h: item.h,
+                });
+              });
+            }}
+            isDraggable={true}
+            isResizable={true}
+            resizeHandles={["se", "sw", "ne", "nw", "n", "s", "e", "w"]}
+            margin={[16, 16]}
+            useCSSTransforms={true}
+            transformScale={1}
+          >
+            {widgets
+              .filter((widget) => widget.visible)
+              .map((widget) => (
+                <div key={widget.id}>{renderWidget(widget)}</div>
+              ))}
+          </ResponsiveGridLayout>
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-green-400 font-mono text-sm animate-pulse">
+              대시보드 레이아웃을 불러오는 중...
+            </div>
+          </div>
+        )}
 
         {/* Settings Modal */}
         {isSettingsOpen && (

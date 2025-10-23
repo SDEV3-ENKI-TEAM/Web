@@ -32,16 +32,6 @@ export async function fetchDonutStats(): Promise<any> {
   return await response.json();
 }
 
-export async function fetchBarChart(): Promise<any[]> {
-  const response = await fetchWithAuth("/api/bar-chart");
-  return await response.json();
-}
-
-export async function fetchHeatMap(): Promise<any[]> {
-  const response = await fetchWithAuth("/api/heatmap");
-  return await response.json();
-}
-
 export async function fetchInfiniteAlarms(
   limit: number = 20,
   cursor?: string

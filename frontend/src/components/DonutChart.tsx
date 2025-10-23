@@ -198,24 +198,6 @@ export default function DonutChart({
                 </div>
               </div>
             </div>
-
-            {/* Terminal info line */}
-            <div className="bg-slate-800/30 border border-slate-700/50 rounded px-3 py-2">
-              <div className="text-slate-400 text-xs font-mono text-center">
-                전체 이벤트:{" "}
-                <span className="text-blue-400 font-semibold">
-                  {stats.total}
-                </span>{" "}
-                | 처리됨:{" "}
-                <span className="text-green-400 font-semibold">
-                  {stats.processed}
-                </span>{" "}
-                | 실패:{" "}
-                <span className="text-red-400 font-semibold">
-                  {stats.failed}
-                </span>
-              </div>
-            </div>
           </div>
         </>
       )}

@@ -16,6 +16,7 @@ export interface EventDetail {
   id: number;
   date: string;
   incident: string;
+  traceID?: string;
   rowData?: {
     ip_address: string;
     user: string;
