@@ -85,7 +85,7 @@ export default function SettingsPage() {
   const router = useRouter();
 
   const [settings, setSettings] = useState<Record<string, any>>({});
-  const [showGuide, setShowGuide] = useState(true);
+  const [showGuide, setShowGuide] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<
