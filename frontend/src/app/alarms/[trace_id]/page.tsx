@@ -1024,7 +1024,7 @@ function AlarmDetailContent() {
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.8, y: 50 }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-slate-900/90 backdrop-blur-md border border-slate-700/50 rounded-xl shadow-2xl p-8 w-[600px] h-[900px] overflow-y-auto relative font-mono"
+                className="bg-slate-900/90 backdrop-blur-md border border-slate-700/50 rounded-xl shadow-2xl p-8 w-[600px] h-[1000px] overflow-y-auto relative font-mono"
               >
                 <div className="bg-slate-800/80 px-4 py-2 -mx-8 -mt-8 mb-6 border-b border-slate-700/50 flex items-center gap-2">
                   <div className="flex gap-2">
