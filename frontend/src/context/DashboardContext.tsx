@@ -122,12 +122,6 @@ const availableWidgetTypes = [
     defaultSize: { w: 4, h: 4 },
   },
   {
-    type: "barchart",
-    name: "막대 그래프",
-    description: "카테고리별 데이터 비교",
-    defaultSize: { w: 6, h: 4 },
-  },
-  {
     type: "eventtable",
     name: "이벤트 테이블",
     description: "이벤트 데이터를 테이블로 표시",
@@ -138,12 +132,6 @@ const availableWidgetTypes = [
     name: "이벤트 상세",
     description: "선택된 이벤트의 상세 정보",
     defaultSize: { w: 4, h: 5 },
-  },
-  {
-    type: "heatmap",
-    name: "히트맵",
-    description: "시간대별 활동 패턴 히트맵",
-    defaultSize: { w: 8, h: 4 },
   },
 ];
 const getInitialWidgets = (): DashboardWidget[] => {

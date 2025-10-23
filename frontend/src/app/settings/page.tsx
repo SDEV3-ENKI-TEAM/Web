@@ -34,21 +34,14 @@ interface SettingsCategory {
 
 const settingsCategories: SettingsCategory[] = [
   {
-    id: "notifications",
-    name: "알림 설정",
-    description: "보안 알림 및 Slack 연동 설정",
-    color: "text-blue-400",
-    bgColor: "bg-blue-500/10",
-    borderColor: "border-blue-500/20",
-    icon: "•",
+    id: "slack_config",
+    name: "Slack 설정",
+    description: "Slack 웹훅 URL과 채널명을 설정합니다",
+    color: "text-green-400",
+    bgColor: "bg-green-500/10",
+    borderColor: "border-green-500/20",
+    icon: "⚙️",
     settings: [
-      {
-        name: "Slack 알림 연동",
-        description: "Slack으로 보안 알림을 전송합니다",
-        type: "toggle",
-        value: false,
-        key: "slack_enabled",
-      },
       {
         name: "Slack 웹훅 URL",
         description: "Slack 채널의 웹훅 URL을 입력하세요",
@@ -64,6 +57,24 @@ const settingsCategories: SettingsCategory[] = [
         value: "#security-alerts",
         placeholder: "#security-alerts",
         key: "slack_channel",
+      },
+    ],
+  },
+  {
+    id: "slack_connection",
+    name: "Slack 연동",
+    description: "Slack 알림 연동을 활성화/비활성화합니다",
+    color: "text-blue-400",
+    bgColor: "bg-blue-500/10",
+    borderColor: "border-blue-500/20",
+    icon: "🔗",
+    settings: [
+      {
+        name: "Slack 알림 연동",
+        description: "Slack으로 보안 알림을 전송합니다",
+        type: "toggle",
+        value: false,
+        key: "slack_enabled",
       },
     ],
   },
@@ -85,8 +96,8 @@ export default function SettingsPage() {
   const didLoadRef = useRef(false);
 
   const isWebhookMasked = (s: Record<string, any>) => {
-    const masked = s["notifications_slack_webhook_url_masked"] || "";
-    const cur = s["notifications_slack_webhook_url"] || "";
+    const masked = s["slack_config_slack_webhook_url_masked"] || "";
+    const cur = s["slack_config_slack_webhook_url"] || "";
     return masked && cur === masked;
   };
 
@@ -107,64 +118,54 @@ export default function SettingsPage() {
     setHasChanges(true);
   };
 
-  const queueAutoSave = (
-    immediate: boolean = false,
-    draft?: Record<string, any>
-  ) => {
-    if (!didLoadRef.current) return;
-    const doSave = async () => {
-      try {
-        const s = draft ?? settings;
-        if (isWebhookMasked(s)) {
-          setSaveStatus("idle");
-          setSaving(false);
-          setHasChanges(false);
-          return;
-        }
-        setSaving(true);
-        setSaveStatus("saving");
-        setSaveError(null);
-        const enabled = !!(s["notifications_slack_enabled"] ?? false);
-        const channel = s["notifications_slack_channel"] ?? "";
-        const webhook = s["notifications_slack_webhook_url"] ?? "";
-        if (enabled && !webhook) {
-          setSaveStatus("error");
-          setSaveError("Slack 웹훅 URL을 입력하세요");
-          setSaving(false);
-          return;
-        }
-        const resp = await fetch("/api/settings/slack", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            webhook_url: webhook,
-            channel: channel || null,
-            enabled,
-          }),
-        });
-        if (!resp.ok) {
-          setSaveStatus("error");
-          setSaveError(`저장 실패: ${resp.status}`);
-          setSaving(false);
-          return;
-        }
-        setSaveStatus("saved");
-        setHasChanges(false);
-        setSaving(false);
-        setTimeout(() => setSaveStatus("idle"), 1500);
-      } catch (e: any) {
-        setSaveStatus("error");
-        setSaveError("저장 중 오류가 발생했습니다");
-        setSaving(false);
-      }
-    };
+  const handleSaveAll = async () => {
+    try {
+      setSaving(true);
+      setSaveStatus("saving");
+      setSaveError(null);
 
-    if (immediate) {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      doSave();
-    } else {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(doSave, 600);
+      const enabled = !!(settings["slack_connection_slack_enabled"] ?? false);
+      const channel = settings["slack_config_slack_channel"] ?? "";
+      const webhook = settings["slack_config_slack_webhook_url"] ?? "";
+
+      if (enabled && !webhook) {
+        setSaveStatus("error");
+        setSaveError("Slack 웹훅 URL을 입력하세요");
+        setSaving(false);
+        return;
+      }
+
+      const resp = await fetch("/api/settings/slack", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          webhook_url: webhook || "https://example.com", // 빈 문자열 방지
+          channel: channel || null,
+          enabled,
+        }),
+      });
+
+      if (!resp.ok) {
+        setSaveStatus("error");
+        if (resp.status === 422) {
+          setSaveError(
+            "웹훅 URL 형식이 올바르지 않습니다. 올바른 URL을 입력해주세요."
+          );
+        } else {
+          setSaveError(`저장 실패: ${resp.status}`);
+        }
+        setSaving(false);
+        return;
+      }
+
+      setSaveStatus("saved");
+      setHasChanges(false);
+      setSaving(false);
+      setTimeout(() => setSaveStatus("idle"), 1500);
+    } catch (e: any) {
+      setSaveStatus("error");
+      setSaveError("저장 중 오류가 발생했습니다");
+      setSaving(false);
     }
   };
 
@@ -176,11 +177,11 @@ export default function SettingsPage() {
         const data = await resp.json();
         setSettings((prev) => ({
           ...prev,
-          ["notifications_slack_enabled"]: !!data.enabled,
-          ["notifications_slack_channel"]: data.channel || "",
-          ["notifications_slack_webhook_url_masked"]:
+          ["slack_connection_slack_enabled"]: !!data.enabled,
+          ["slack_config_slack_channel"]: data.channel || "",
+          ["slack_config_slack_webhook_url_masked"]:
             data.webhook_url_masked || "",
-          ["notifications_slack_webhook_url"]: data.webhook_url_masked || "",
+          ["slack_config_slack_webhook_url"]: data.webhook_url_masked || "",
         }));
       } catch {}
       didLoadRef.current = true;
@@ -188,39 +189,43 @@ export default function SettingsPage() {
     load();
   }, []);
 
-  const handleSaveSettings = async () => {
-    try {
-      const enabled = !!(settings["notifications_slack_enabled"] ?? false);
-      const channel = settings["notifications_slack_channel"] ?? "";
-      const webhook = settings["notifications_slack_webhook_url"] ?? "";
-      if (!webhook) {
-        alert("Slack 웹훅 URL을 입력하세요");
-        return;
-      }
-      const resp = await fetch("/api/settings/slack", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          webhook_url: webhook,
-          channel: channel || null,
-          enabled,
-        }),
-      });
-      if (!resp.ok) {
-        const t = await resp.text();
-        alert(`저장 실패: ${resp.status} ${t}`);
-        return;
-      }
-      setHasChanges(false);
-    } catch (e: any) {
-      alert("저장 중 오류가 발생했습니다");
-    }
-  };
+  const handleResetSettings = async () => {
+    if (
+      confirm(
+        "모든 설정을 기본값으로 되돌리시겠습니까? 이 작업은 되돌릴 수 없습니다."
+      )
+    ) {
+      try {
+        setSaving(true);
+        setSaveStatus("saving");
+        setSaveError(null);
 
-  const handleResetSettings = () => {
-    if (confirm("모든 설정을 기본값으로 되돌리시겠습니까?")) {
-      setSettings({});
-      setHasChanges(false);
+        const resp = await fetch("/api/settings/slack/reset", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            credentials: "include",
+          },
+          credentials: "include",
+        });
+
+        if (!resp.ok) {
+          setSaveStatus("error");
+          setSaveError(`초기화 실패: ${resp.status}`);
+          setSaving(false);
+          return;
+        }
+
+        setSettings({});
+        setHasChanges(false);
+        setSaveStatus("saved");
+        setSaving(false);
+        setTimeout(() => setSaveStatus("idle"), 1500);
+      } catch (e: any) {
+        setSaveStatus("error");
+        setSaveError("초기화 중 오류가 발생했습니다");
+        setSaving(false);
+      }
     }
   };
 
@@ -243,10 +248,104 @@ export default function SettingsPage() {
               onClick={() => setShowGuide(!showGuide)}
               className="px-4 py-2 bg-blue-500/20 border border-blue-500/30 rounded-lg text-blue-300 hover:bg-blue-500/30 transition-colors"
             >
-              {showGuide ? "가이드 접기" : "초보자 가이드"}
+              {showGuide ? "가이드 접기" : "설정 가이드"}
             </button>
           </div>
         </motion.div>
+
+        <AnimatePresence>
+          {showGuide && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="bg-slate-900/70 backdrop-blur-md border border-slate-700/50 rounded-lg overflow-hidden mb-6"
+            >
+              <div className="p-6">
+                <h2 className="text-lg font-bold text-cyan-400 mb-4">
+                  Slack 설정 가이드
+                </h2>
+
+                <div className="space-y-6">
+                  <div className="bg-slate-800/50 rounded-lg p-4">
+                    <h3 className="text-md font-semibold text-slate-200 mb-3">
+                      1단계: Slack 웹훅 URL 생성
+                    </h3>
+                    <div className="space-y-2 text-sm text-slate-300">
+                      <p>1. Slack 워크스페이스에 로그인</p>
+                      <p>
+                        2. <span className="text-slate-200">Apps</span> →{" "}
+                        <span className="text-slate-200">
+                          Incoming Webhooks
+                        </span>{" "}
+                        클릭
+                      </p>
+                      <p>
+                        3. <span className="text-slate-200">Add to Slack</span>{" "}
+                        버튼 클릭
+                      </p>
+                      <p>4. 알림을 받을 채널 선택</p>
+                      <p>
+                        5. <span className="text-slate-200">Allow</span>{" "}
+                        클릭하여 권한 부여
+                      </p>
+                      <p>6. 생성된 웹훅 URL을 복사</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-800/50 rounded-lg p-4">
+                    <h3 className="text-md font-semibold text-slate-200 mb-3">
+                      2단계: 설정 입력
+                    </h3>
+                    <div className="space-y-2 text-sm text-slate-300">
+                      <p>
+                        • <span className="text-slate-200">Slack 웹훅 URL</span>
+                        : 복사한 웹훅 URL 붙여넣기
+                      </p>
+                      <p>
+                        • <span className="text-slate-200">Slack 채널명</span>:
+                        알림을 받을 채널명 (예: #security-alerts)
+                      </p>
+                      <p>
+                        •{" "}
+                        <span className="text-slate-200">Slack 알림 연동</span>:
+                        설정 완료 후 ON으로 변경
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-800/50 rounded-lg p-4">
+                    <h3 className="text-md font-semibold text-slate-200 mb-3">
+                      팁 및 주의사항
+                    </h3>
+                    <div className="space-y-2 text-sm text-slate-300">
+                      <p>
+                        • 웹훅 URL은{" "}
+                        <span className="text-slate-200">
+                          https://hooks.slack.com/services/...
+                        </span>{" "}
+                        형식이어야 합니다
+                      </p>
+                      <p>
+                        • 채널명은 <span className="text-slate-200">#</span>로
+                        시작하는 것이 좋습니다
+                      </p>
+                      <p>
+                        • 설정 변경 후 반드시{" "}
+                        <span className="text-slate-200">저장</span> 버튼을
+                        클릭하세요
+                      </p>
+                      <p>
+                        • 연동을 ON으로 하려면 웹훅 URL과 채널명이 모두
+                        입력되어야 합니다
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
           <div className="space-y-6 col-span-4">
@@ -284,46 +383,19 @@ export default function SettingsPage() {
 
                       {setting.type === "toggle" && (
                         <button
-                          onClick={async () => {
+                          onClick={() => {
                             const current = !!(
                               settings[`${category.id}_${setting.key}`] ??
                               setting.value
                             );
                             const nextValue = !current;
+
                             const next = {
                               ...settings,
                               [`${category.id}_${setting.key}`]: nextValue,
                             };
                             setSettings(next);
                             setHasChanges(true);
-                            setSaveStatus("saving");
-                            try {
-                              const resp = await fetch(
-                                "/api/settings/slack/enabled",
-                                {
-                                  method: "PATCH",
-                                  headers: {
-                                    "Content-Type": "application/json",
-                                  },
-                                  body: JSON.stringify({ enabled: nextValue }),
-                                }
-                              );
-                              if (!resp.ok) {
-                                throw new Error(await resp.text());
-                              }
-                              setSaveStatus("saved");
-                              setTimeout(() => setSaveStatus("idle"), 1500);
-                            } catch (e: any) {
-                              const reverted = {
-                                ...settings,
-                                [`${category.id}_${setting.key}`]: current,
-                              };
-                              setSettings(reverted);
-                              setSaveStatus("error");
-                              setSaveError(
-                                "웹훅이 필요하거나 저장에 실패했습니다"
-                              );
-                            }
                           }}
                           className={`w-14 h-8 rounded-full transition-colors ${
                             settings[`${category.id}_${setting.key}`] ??
@@ -357,7 +429,6 @@ export default function SettingsPage() {
                             };
                             setSettings(next);
                             setHasChanges(true);
-                            queueAutoSave(false, next);
                           }}
                         >
                           {setting.options?.map((opt: SettingOption) => (
@@ -384,7 +455,7 @@ export default function SettingsPage() {
                             ) {
                               const next = {
                                 ...settings,
-                                ["notifications_slack_webhook_url"]: "",
+                                ["slack_config_slack_webhook_url"]: "",
                               };
                               setSettings(next);
                             }
@@ -396,19 +467,6 @@ export default function SettingsPage() {
                             };
                             setSettings(next);
                             setHasChanges(true);
-                            if (setting.key === "slack_webhook_url") {
-                              queueAutoSave(false, next);
-                            } else {
-                              queueAutoSave(false, next);
-                            }
-                          }}
-                          onBlur={() => {
-                            if (
-                              setting.key === "slack_webhook_url" &&
-                              isWebhookMasked(settings)
-                            )
-                              return;
-                            queueAutoSave(true);
                           }}
                         />
                       )}
@@ -431,8 +489,19 @@ export default function SettingsPage() {
             {saveStatus === "error" && (
               <span className="text-red-400">{saveError || "저장 실패"}</span>
             )}
+            {hasChanges && saveStatus === "idle" && (
+              <span className="text-yellow-400">변경사항이 있습니다</span>
+            )}
           </div>
           <div className="flex items-center justify-end gap-3">
+            {hasChanges && (
+              <button
+                onClick={handleSaveAll}
+                className="px-4 py-2 bg-blue-600 border border-blue-500 rounded-lg text-white hover:bg-blue-700"
+              >
+                저장
+              </button>
+            )}
             <button
               onClick={handleResetSettings}
               className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:bg-slate-700"

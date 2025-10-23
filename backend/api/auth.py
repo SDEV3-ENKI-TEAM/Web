@@ -126,19 +126,21 @@ def _create_jwt_response(user: User, roles: List[str], db: Session, request: Req
     )
     
     json_response = JSONResponse(content=response_data.dict())
+    is_https = request.url.scheme == "https"
+    
     json_response.set_cookie(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=True,
+        secure=is_https,
         samesite="lax",
-        max_age=12 * 60 * 60  # 12시간
+        max_age=12 * 60 * 60
     )
     json_response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=True,
+        secure=is_https,
         samesite="lax",
         max_age=60 * 60
     )
@@ -260,14 +262,17 @@ async def logout(
 @limiter.limit("10/minute")
 async def refresh_token(
     request: Request, 
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     refresh_token_cookie: Optional[str] = Cookie(None, alias="refresh_token"),
     refresh_request: Optional[RefreshTokenRequest] = None,
     db: Session = Depends(get_db)
 ):
     """Refresh Token으로 새로운 Access Token 발급"""
-    # 쿠키 또는 body에서 refresh_token 가져오기
+
     refresh_token = None
-    if refresh_token_cookie:
+    if credentials:
+        refresh_token = credentials.credentials
+    elif refresh_token_cookie:
         refresh_token = refresh_token_cookie
     elif refresh_request:
         refresh_token = refresh_request.refresh_token
@@ -309,11 +314,13 @@ async def refresh_token(
             "token_type": "bearer"
         }
     )
+    is_https = request.url.scheme == "https"
+    
     json_response.set_cookie(
         key="refresh_token",
         value=new_refresh_token,
         httponly=True,
-        secure=True,
+        secure=is_https,
         samesite="lax",
         max_age=12 * 60 * 60
     )
@@ -321,7 +328,7 @@ async def refresh_token(
         key="access_token",
         value=new_access_token,
         httponly=True,
-        secure=True,
+        secure=is_https,
         samesite="lax",
         max_age=60 * 60
     )

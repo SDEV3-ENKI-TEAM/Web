@@ -115,6 +115,7 @@ class ValkeyEventReader:
                     alarm_user_id = alarm.get('user_id')
                     if username and str(alarm_user_id) != str(username):
                         continue
+                    
                     recent_alarms.append(alarm)
                 except json.JSONDecodeError as e:
                     logger.error(f"Trace JSON 파싱 실패: {e}")

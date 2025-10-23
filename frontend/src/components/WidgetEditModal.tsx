@@ -106,53 +106,6 @@ export default function WidgetEditModal({
           </div>
         );
 
-      case "barchart":
-        return (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-app-text mb-2">
-                제목
-              </label>
-              <input
-                type="text"
-                value={config.title || ""}
-                onChange={(e) => handleInputChange("title", e.target.value)}
-                className="input-field w-full"
-                placeholder="막대 그래프 제목"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-app-text mb-2">
-                색상
-              </label>
-              <input
-                type="color"
-                value={config.color || "#4a5568"}
-                onChange={(e) => handleInputChange("color", e.target.value)}
-                className="w-full h-10 rounded border border-app-accent-200"
-              />
-            </div>
-          </div>
-        );
-
-      case "heatmap":
-        return (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-app-text mb-2">
-                제목
-              </label>
-              <input
-                type="text"
-                value={config.title || ""}
-                onChange={(e) => handleInputChange("title", e.target.value)}
-                className="input-field w-full"
-                placeholder="히트맵 제목"
-              />
-            </div>
-          </div>
-        );
-
       case "eventtable":
         return (
           <div className="space-y-4">

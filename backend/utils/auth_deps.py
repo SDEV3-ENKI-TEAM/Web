@@ -27,12 +27,11 @@ def get_current_user(
 ) -> TokenPayload:
     """현재 사용자 토큰 페이로드 반환 (헤더 또는 쿠키에서 토큰 가져오기)"""
     
+    
     try:
-        # Authorization 헤더에서 토큰 가져오기 시도
         token = None
         if credentials:
             token = credentials.credentials
-        # 쿠키에서 토큰 가져오기 시도
         elif access_token:
             token = access_token
         

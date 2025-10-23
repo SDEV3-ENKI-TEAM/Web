@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useRouter, useSearchParams } from "next/navigation";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useSSE } from "@/contexts/SSEContext";
 import { useAuth } from "@/context/AuthContext";
 
@@ -64,6 +64,7 @@ export default function AlarmsPage() {
     endDate: "",
   });
   const [showFilters, setShowFilters] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
   useEffect(() => {
     setTotal(alarms.length);
@@ -192,13 +193,83 @@ export default function AlarmsPage() {
               </p>
             </div>
             <button
-              onClick={() => alert("초보자 가이드는 추후 제공 예정입니다.")}
+              onClick={() => setShowGuide(!showGuide)}
               className="px-4 py-2 bg-blue-500/20 border border-blue-500/30 rounded-lg text-blue-200 hover:bg-blue-500/30 transition-colors font-sans text-sm"
             >
-              초보자 가이드
+              {showGuide ? "가이드 접기" : "가이드 보기"}
             </button>
           </div>
         </motion.div>
+
+        {/* 초보자 가이드 */}
+        <AnimatePresence>
+          {showGuide && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="bg-slate-900/70 backdrop-blur-md border border-slate-700/50 rounded-lg overflow-hidden mb-6"
+            >
+              <div className="p-6">
+                <h2 className="text-lg font-bold text-cyan-400 mb-4">
+                  라벨링 설명
+                </h2>
+                <div className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg mb-4">
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1 rounded-full border text-xs font-medium bg-red-600/10 text-red-300 border-red-600/30">
+                      critical
+                    </span>
+                    <span className="px-3 py-1 rounded-full border text-xs font-medium bg-red-500/10 text-red-400 border-red-500/30">
+                      high
+                    </span>
+                    <span className="px-3 py-1 rounded-full border text-xs font-medium bg-orange-500/10 text-orange-400 border-orange-500/30">
+                      medium
+                    </span>
+                    <span className="px-3 py-1 rounded-full border text-xs font-medium bg-yellow-500/10 text-yellow-400 border-yellow-500/30">
+                      low
+                    </span>
+                  </div>
+                  <span className="text-sm text-slate-400">
+                    시그마 룰 매칭 평균 위험도
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+                  <div className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg">
+                    <span className="px-3 py-1 rounded-full border text-xs font-medium bg-blue-500/10 text-blue-400 border-blue-500/30">
+                      86.1%
+                    </span>
+                    <span className="text-sm text-slate-400">
+                      AI가 분석한 악성 점수 (0-100%)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <span className="px-3 py-1 rounded-full border text-xs font-medium bg-red-600/10 text-red-300 border-red-600/30">
+                        악성
+                      </span>
+                      <span className="px-3 py-1 rounded-full border text-xs font-medium bg-green-500/10 text-green-400 border-green-500/30">
+                        정상
+                      </span>
+                    </div>
+                    <span className="text-sm text-slate-400">
+                      AI의 최종 판정 (악성/정상)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg">
+                    <span className="px-3 py-1 rounded-full border text-xs font-medium bg-slate-500/10 text-slate-400 border-slate-500/30">
+                      3개
+                    </span>
+                    <span className="text-sm text-slate-400">
+                      매칭된 보안 규칙의 개수
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div className="mb-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex items-center gap-4">

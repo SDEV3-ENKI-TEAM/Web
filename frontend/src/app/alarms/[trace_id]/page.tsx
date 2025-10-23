@@ -157,11 +157,24 @@ function AlarmDetailContent() {
   const { trace_id } = useParams();
   const [trace, setTrace] = useState<Trace | null>(null);
   const [selectedNode, setSelectedNode] = useState<any>(null);
+  useEffect(() => {
+    if (selectedNode) {
+      const prevOverflow = document.body.style.overflow;
+      const prevTouchAction = (document.body.style as any).touchAction;
+      document.body.style.overflow = "hidden";
+      (document.body.style as any).touchAction = "none";
+      return () => {
+        document.body.style.overflow = prevOverflow;
+        (document.body.style as any).touchAction = prevTouchAction;
+      };
+    }
+  }, [selectedNode]);
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"report" | "response">("report");
   const [showRaw, setShowRaw] = useState(false);
+  const [rawDataMode, setRawDataMode] = useState(false);
   const [sigmaTitles, setSigmaTitles] = useState<{ [key: string]: string }>({});
   const router = useRouter();
   const { logout } = useAuth();
@@ -1000,7 +1013,10 @@ function AlarmDetailContent() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm m-0 !mt-0"
+              style={{ margin: 0, marginTop: 0 }}
+              onWheel={(e) => e.preventDefault()}
+              onTouchMove={(e) => e.preventDefault()}
               onClick={onCloseModal}
             >
               <motion.div
@@ -1008,7 +1024,7 @@ function AlarmDetailContent() {
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.8, y: 50 }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-slate-900/90 backdrop-blur-md border border-slate-700/50 rounded-xl shadow-2xl p-8 min-w-[500px] max-w-4xl max-h-[90vh] overflow-y-auto relative font-mono"
+                className="bg-slate-900/90 backdrop-blur-md border border-slate-700/50 rounded-xl shadow-2xl p-8 w-[600px] h-[900px] overflow-y-auto relative font-mono"
               >
                 <div className="bg-slate-800/80 px-4 py-2 -mx-8 -mt-8 mb-6 border-b border-slate-700/50 flex items-center gap-2">
                   <div className="flex gap-2">
@@ -1017,156 +1033,175 @@ function AlarmDetailContent() {
                     <div className="w-3 h-3 bg-green-500 rounded-full"></div>
                   </div>
                   <span className="text-slate-400 text-sm font-mono ml-2">
-                    보안 이벤트 상세 정보
+                    {rawDataMode ? "Raw 데이터 뷰어" : "보안 이벤트 상세 정보"}
                   </span>
-                  <button
-                    className="ml-auto text-slate-400 hover:text-red-400 text-lg font-bold"
-                    onClick={onCloseModal}
-                  >
-                    ×
-                  </button>
-                </div>
-                <h3 className="text-lg font-bold mb-4 text-cyan-400">
-                  단계별 상세 정보
-                </h3>
-                <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                  <div className="text-blue-300 font-semibold mb-2">
-                    이벤트 타입
-                  </div>
-                  <div className="text-slate-300">
-                    {selectedNode.data.explanation}
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div className="min-w-0">
-                    <span className="text-slate-400">활동 유형:</span>
-                    <div className="text-purple-300 font-bold break-words text-sm">
-                      {(() => {
-                        const tag = selectedNode.data.event.tag || {};
-                        let eventType = "";
-                        if (tag.EventName) {
-                          eventType = tag.EventName.split("(")[0]
-                            .replace(/[^a-zA-Z]/g, "")
-                            .toLowerCase();
-                        } else if (tag.TaskName) {
-                          eventType = tag.TaskName.split("(")[0]
-                            .replace(/[^a-zA-Z]/g, "")
-                            .toLowerCase();
-                        } else {
-                          eventType = "unknownevent";
-                        }
-                        return eventType;
-                      })()}
+                  <div className="ml-auto flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-400 text-xs">상세 정보</span>
+                      <button
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                          rawDataMode ? "bg-blue-600" : "bg-slate-600"
+                        }`}
+                        onClick={() => setRawDataMode(!rawDataMode)}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            rawDataMode ? "translate-x-6" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                      <span className="text-slate-400 text-xs">Raw 데이터</span>
                     </div>
-                  </div>
-                  <div className="min-w-0">
-                    <span className="text-slate-400">단계 번호:</span>
-                    <div className="text-blue-300 text-sm">
-                      {Number(selectedNode.id) + 1}
-                    </div>
-                  </div>
-                  <div className="min-w-0 md:col-span-2">
-                    <span className="text-slate-400">Trace ID:</span>
-                    <div className="text-cyan-300 bg-cyan-500/10 p-2 rounded border border-cyan-500/20 mt-1 break-all text-sm font-mono">
-                      {selectedNode.data.event.trace_id ||
-                        trace?.trace_id ||
-                        "데이터 없음"}
-                    </div>
-                  </div>
-                  <div className="min-w-0 md:col-span-2">
-                    <span className="text-slate-400">실행 시간:</span>
-                    <div className="text-amber-300 bg-amber-500/10 p-2 rounded border border-amber-500/20 mt-1 text-sm font-mono break-words">
-                      {selectedNode.data.event.tag?.UtcTime ||
-                        selectedNode.data.event.timestamp ||
-                        "시간 정보 없음"}
-                    </div>
+                    <button
+                      className="text-slate-400 hover:text-red-400 text-lg font-bold"
+                      onClick={onCloseModal}
+                    >
+                      ×
+                    </button>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                  <div className="min-w-0">
-                    <span className="text-slate-400">실행된 프로그램:</span>
-                    <div className="text-green-300 bg-green-500/10 p-2 rounded border border-green-500/20 mt-1 break-words text-sm">
-                      {(() => {
-                        const tag = selectedNode.data.event.tag || {};
-                        let processName =
-                          tag.ProcessName ||
-                          tag.Image ||
-                          tag.EventName ||
-                          tag.TaskName ||
-                          "알 수 없는 활동";
-                        if (
-                          typeof processName === "string" &&
-                          processName.includes(".exe")
-                        ) {
-                          const match = processName.match(/([^\\/]+\.exe)/i);
-                          if (match) processName = match[1];
-                        }
-                        return processName;
-                      })()}
+                {!rawDataMode ? (
+                  <>
+                    <h3 className="text-lg font-bold mb-4 text-cyan-400">
+                      단계별 상세 정보
+                    </h3>
+                    <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                      <div className="text-blue-300 font-semibold mb-2">
+                        이벤트 타입
+                      </div>
+                      <div className="text-slate-300">
+                        {selectedNode.data.explanation}
+                      </div>
                     </div>
-                  </div>
-                  <div className="min-w-0 md:col-span-2">
-                    <span className="text-slate-400">명령어:</span>
-                    <div className="text-yellow-300 bg-yellow-500/10 p-2 rounded border border-yellow-500/20 mt-1 break-all text-sm">
-                      {selectedNode.data.event.tag?.CommandLine || "-"}
-                    </div>
-                  </div>
-                  <div className="min-w-0 md:col-span-2">
-                    <span className="text-slate-400">부모 프로세스:</span>
-                    <div className="text-orange-300 break-all text-sm">
-                      {selectedNode.data.event.tag?.ParentImage || "-"}
-                    </div>
-                  </div>
-                  <div className="min-w-0 md:col-span-2">
-                    <span className="text-slate-400">부모 명령어:</span>
-                    <div className="text-orange-300 break-all text-sm">
-                      {selectedNode.data.event.tag?.ParentCommandLine || "-"}
-                    </div>
-                  </div>
-                  <div className="min-w-0">
-                    <span className="text-slate-400">사용자:</span>
-                    <div className="text-cyan-300 break-words text-sm">
-                      {selectedNode.data.event.tag?.User || "-"}
-                    </div>
-                  </div>
-                  <div className="min-w-0">
-                    <span className="text-slate-400">경로:</span>
-                    <div className="text-cyan-300 break-words text-sm">
-                      {selectedNode.data.event.tag?.CurrentDirectory || "-"}
-                    </div>
-                  </div>
-                </div>
-                {selectedNode.data.event.tag?.["sigma@alert"] && (
-                  <div className="mt-4">
-                    <span className="text-slate-400">탐지된 Sigma 룰:</span>
-                    <div className="space-y-2 mt-2">
-                      {parseSigmaAlert(
-                        selectedNode.data.event.tag["sigma@alert"]
-                      ).map((sigmaId, idx) => (
-                        <div
-                          key={idx}
-                          className="text-yellow-300 bg-yellow-500/10 p-2 rounded border border-yellow-500/20 text-sm break-words"
-                        >
-                          {sigmaTitles[sigmaId] || sigmaId}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div className="min-w-0">
+                        <span className="text-slate-400">활동 유형:</span>
+                        <div className="text-purple-300 font-bold break-words text-sm">
+                          {(() => {
+                            const tag = selectedNode.data.event.tag || {};
+                            let eventType = "";
+                            if (tag.EventName) {
+                              eventType = tag.EventName.split("(")[0]
+                                .replace(/[^a-zA-Z]/g, "")
+                                .toLowerCase();
+                            } else if (tag.TaskName) {
+                              eventType = tag.TaskName.split("(")[0]
+                                .replace(/[^a-zA-Z]/g, "")
+                                .toLowerCase();
+                            } else {
+                              eventType = "unknownevent";
+                            }
+                            return eventType;
+                          })()}
                         </div>
-                      ))}
+                      </div>
+                      <div className="min-w-0">
+                        <span className="text-slate-400">단계 번호:</span>
+                        <div className="text-blue-300 text-sm">
+                          {Number(selectedNode.id) + 1}
+                        </div>
+                      </div>
+                      <div className="min-w-0 md:col-span-2">
+                        <span className="text-slate-400">Trace ID:</span>
+                        <div className="text-cyan-300 bg-cyan-500/10 p-2 rounded border border-cyan-500/20 mt-1 break-all text-sm font-mono">
+                          {selectedNode.data.event.trace_id ||
+                            trace?.trace_id ||
+                            "데이터 없음"}
+                        </div>
+                      </div>
+                      <div className="min-w-0 md:col-span-2">
+                        <span className="text-slate-400">실행 시간:</span>
+                        <div className="text-amber-300 bg-amber-500/10 p-2 rounded border border-amber-500/20 mt-1 text-sm font-mono break-words">
+                          {selectedNode.data.event.tag?.UtcTime ||
+                            selectedNode.data.event.timestamp ||
+                            "시간 정보 없음"}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                )}
-                {/* Raw 데이터 (토글 버튼) */}
-                <div className="mt-8">
-                  <button
-                    className="mb-2 px-4 py-2 rounded bg-slate-700 text-slate-200 hover:bg-slate-600 border border-slate-600 text-xs"
-                    onClick={() => setShowRaw((v) => !v)}
-                  >
-                    {showRaw ? "Raw 데이터 숨기기" : "Raw 데이터 보기"}
-                  </button>
-                  {showRaw && (
-                    <pre className="text-xs bg-slate-800 p-3 rounded border border-slate-700/50 overflow-auto text-slate-300 max-h-48">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                      <div className="min-w-0">
+                        <span className="text-slate-400">실행된 프로그램:</span>
+                        <div className="text-green-300 bg-green-500/10 p-2 rounded border border-green-500/20 mt-1 break-words text-sm">
+                          {(() => {
+                            const tag = selectedNode.data.event.tag || {};
+                            let processName =
+                              tag.ProcessName ||
+                              tag.Image ||
+                              tag.EventName ||
+                              tag.TaskName ||
+                              "알 수 없는 활동";
+                            if (
+                              typeof processName === "string" &&
+                              processName.includes(".exe")
+                            ) {
+                              const match =
+                                processName.match(/([^\\/]+\.exe)/i);
+                              if (match) processName = match[1];
+                            }
+                            return processName;
+                          })()}
+                        </div>
+                      </div>
+                      <div className="min-w-0 md:col-span-2">
+                        <span className="text-slate-400">명령어:</span>
+                        <div className="text-yellow-300 bg-yellow-500/10 p-2 rounded border border-yellow-500/20 mt-1 break-all text-sm">
+                          {selectedNode.data.event.tag?.CommandLine || "-"}
+                        </div>
+                      </div>
+                      <div className="min-w-0 md:col-span-2">
+                        <span className="text-slate-400">부모 프로세스:</span>
+                        <div className="text-orange-300 break-all text-sm">
+                          {selectedNode.data.event.tag?.ParentImage || "-"}
+                        </div>
+                      </div>
+                      <div className="min-w-0 md:col-span-2">
+                        <span className="text-slate-400">부모 명령어:</span>
+                        <div className="text-orange-300 break-all text-sm">
+                          {selectedNode.data.event.tag?.ParentCommandLine ||
+                            "-"}
+                        </div>
+                      </div>
+                      <div className="min-w-0">
+                        <span className="text-slate-400">사용자:</span>
+                        <div className="text-cyan-300 break-words text-sm">
+                          {selectedNode.data.event.tag?.User || "-"}
+                        </div>
+                      </div>
+                      <div className="min-w-0">
+                        <span className="text-slate-400">경로:</span>
+                        <div className="text-cyan-300 break-words text-sm">
+                          {selectedNode.data.event.tag?.CurrentDirectory || "-"}
+                        </div>
+                      </div>
+                    </div>
+                    {selectedNode.data.event.tag?.["sigma@alert"] && (
+                      <div className="mt-4">
+                        <span className="text-slate-400">탐지된 Sigma 룰:</span>
+                        <div className="space-y-2 mt-2">
+                          {parseSigmaAlert(
+                            selectedNode.data.event.tag["sigma@alert"]
+                          ).map((sigmaId, idx) => (
+                            <div
+                              key={idx}
+                              className="text-yellow-300 bg-yellow-500/10 p-2 rounded border border-yellow-500/20 text-sm break-words"
+                            >
+                              {sigmaTitles[sigmaId] || sigmaId}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="mb-6 flex flex-col">
+                    <h3 className="text-lg font-bold mb-4 text-cyan-400">
+                      Raw 데이터
+                    </h3>
+                    <pre className="text-xs bg-slate-800 p-4 rounded border border-slate-700/50 overflow-auto text-slate-300 max-h-[725px] whitespace-pre-wrap">
                       {JSON.stringify(selectedNode.data.event, null, 2)}
                     </pre>
-                  )}
-                </div>
+                  </div>
+                )}
               </motion.div>
             </motion.div>
           )}

@@ -6,11 +6,13 @@ import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePathname, useRouter } from "next/navigation";
 import { useDashboard } from "@/context/DashboardContext";
+import { useSSE } from "@/contexts/SSEContext";
 
 function SidebarComponent() {
   const pathname = usePathname();
   const router = useRouter();
   const { ensureEventLogWidgets } = useDashboard();
+  const { sseConnected, sseError } = useSSE();
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -178,12 +180,22 @@ function SidebarComponent() {
           <div className="text-xs text-slate-400 mb-2">시스템 상태</div>
           <div className="grid grid-cols-2 gap-2 text-xs mb-2">
             <div className="flex items-center gap-1">
-              <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-green-400">온라인</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></div>
-              <span className="text-blue-400">보안</span>
+              {sseConnected ? (
+                <>
+                  <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+                  <span className="text-green-400">연결됨</span>
+                </>
+              ) : sseError ? (
+                <>
+                  <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
+                  <span className="text-red-400">연결 실패</span>
+                </>
+              ) : (
+                <>
+                  <div className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse"></div>
+                  <span className="text-yellow-400">연결 중</span>
+                </>
+              )}
             </div>
           </div>
           <div className="text-slate-500 text-xs" suppressHydrationWarning>
@@ -202,10 +214,8 @@ function SidebarComponent() {
 
       {/* Navigation */}
       <nav className="flex-grow p-4">
-        <div className="text-green-400 text-xs mb-4 font-mono">주요 기능</div>
-
         {/* 주요 메뉴 */}
-        <ul className="space-y-1 mb-6">
+        <ul className="space-y-3 mb-8">
           {mainNavItems.map((item, index) => {
             const isActive = pathname === item.href;
 
@@ -219,7 +229,7 @@ function SidebarComponent() {
                 {item.onClick ? (
                   <button
                     onClick={item.onClick}
-                    className={`group flex items-center justify-between p-3 rounded border transition-all duration-200 w-full text-left ${
+                    className={`group flex items-center justify-between p-4 rounded border transition-all duration-200 w-full text-left ${
                       isActive
                         ? "bg-blue-500/20 border-blue-500/40 text-blue-300"
                         : "border-slate-700/50 text-slate-300 hover:bg-slate-800/50 hover:border-slate-600/50 hover:text-slate-200"
@@ -247,7 +257,7 @@ function SidebarComponent() {
                 ) : (
                   <Link
                     href={item.href}
-                    className={`group flex items-center justify-between p-3 rounded border transition-all duration-200 w-full text-left ${
+                    className={`group flex items-center justify-between p-4 rounded border transition-all duration-200 w-full text-left ${
                       isActive
                         ? "bg-blue-500/20 border-blue-500/40 text-blue-300"
                         : "border-slate-700/50 text-slate-300 hover:bg-slate-800/50 hover:border-slate-600/50 hover:text-slate-200"
@@ -278,13 +288,6 @@ function SidebarComponent() {
           })}
         </ul>
       </nav>
-
-      {/* Terminal Footer */}
-      <div className="border-t border-slate-800/50 p-4">
-        <div className="text-xs text-slate-400 text-center">
-          준비 완료 • 모든 시스템 정상 작동
-        </div>
-      </div>
     </motion.aside>
   );
 }

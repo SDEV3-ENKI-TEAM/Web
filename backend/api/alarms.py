@@ -510,7 +510,7 @@ async def get_alarms_infinite(request: Request, cursor: Optional[str] = None, li
 							alarm["ai_decision"] = llm_info.prediction
 						if llm_info.summary:
 							alarm["ai_summary"] = llm_info.summary
-						alarm["checked"] = llm_info.checked
+						alarm["checked"] = bool(llm_info.checked) if llm_info.checked is not None else False
 			finally:
 				db.close()
 		except Exception:
@@ -794,7 +794,7 @@ async def get_trace_severity(trace_id: str, request: Request, current_user: dict
 
 
 @router.post("/check")
-async def update_alarm_status(payload: AlarmStatusUpdate, current_user: dict = Depends(get_current_user_with_roles)):
+async def update_alarm_status(payload: AlarmStatusUpdate, request: Request, current_user: dict = Depends(get_current_user_with_roles)):
 	try:
 		from database.database import SessionLocal, LLMAnalysis
 		db = SessionLocal()
@@ -811,6 +811,20 @@ async def update_alarm_status(payload: AlarmStatusUpdate, current_user: dict = D
 				db.add(llm_record)
 			
 			db.commit()
+			
+			vk = getattr(request.app.state, "valkey", None)
+			if vk:
+				try:
+					cached_data = vk.get(f"trace:{payload.trace_id}")
+					if cached_data:
+						import json
+						alarm_data = json.loads(cached_data)
+						alarm_data['checked'] = payload.checked
+						vk.set(f"trace:{payload.trace_id}", json.dumps(alarm_data, ensure_ascii=False))
+						vk.expire(f"trace:{payload.trace_id}", 86400)
+				except Exception:
+					pass
+			
 			return {"success": True, "message": "알림 상태가 업데이트되었습니다."}
 		finally:
 			db.close()
@@ -1036,7 +1050,7 @@ async def warm_cache(request: Request, limit: int = 200, current_user: dict = De
 							card["ai_mitigation"] = llm_data.mitigation_suggestions
 							card["ai_score"] = llm_data.score
 							card["ai_decision"] = llm_data.prediction
-							card["checked"] = llm_data.checked  # MySQL에서 checked 상태 가져오기
+							card["checked"] = bool(llm_data.checked) if llm_data.checked is not None else False
 							if llm_data.similar_trace_ids:
 								try:
 									card["ai_similar_traces"] = json.loads(llm_data.similar_trace_ids)

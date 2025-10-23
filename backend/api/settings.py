@@ -98,4 +98,22 @@ async def test_slack(db: Session = Depends(get_db)):
 			ok = 200 <= resp.status_code < 300
 			return SlackTestOut(success=ok, status_code=resp.status_code, message=resp.text if not ok else None)
 	except httpx.HTTPError as e:
-		raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Slack request failed: {e}") 
+		raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Slack request failed: {e}")
+
+@router.delete("/slack")
+async def delete_slack_settings(db: Session = Depends(get_db)):
+	"""Slack 설정 완전 삭제"""
+	row = db.query(SlackSettings).order_by(SlackSettings.id.asc()).first()
+	if row:
+		db.delete(row)
+		db.commit()
+	return {"message": "Slack 설정이 삭제되었습니다"}
+
+@router.post("/slack/reset")
+async def reset_slack_settings(db: Session = Depends(get_db)):
+	"""Slack 설정 초기화 (POST 메서드)"""
+	row = db.query(SlackSettings).order_by(SlackSettings.id.asc()).first()
+	if row:
+		db.delete(row)
+		db.commit()
+	return {"message": "Slack 설정이 초기화되었습니다"} 

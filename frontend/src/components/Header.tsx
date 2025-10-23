@@ -25,7 +25,7 @@ export default function Header({ onLogout, onOpenSettings }: HeaderProps) {
   }, []);
 
   return (
-    <header className="bg-slate-800/50 backdrop-blur-xl border-b border-slate-700/50 font-mono relative z-50">
+    <header className="bg-slate-800/50 backdrop-blur-xl border-b border-slate-700/50 font-mono relative z-[9999]">
       <div className="flex items-center justify-between px-6 py-3">
         {/* Terminal Status Bar */}
         <div className="flex items-center gap-4">
@@ -94,7 +94,7 @@ export default function Header({ onLogout, onOpenSettings }: HeaderProps) {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -10 }}
                   transition={{ duration: 0.2 }}
-                  className="absolute right-0 mt-2 w-60 h-60 bg-slate-900/95 backdrop-blur-xl rounded border border-slate-700 shadow-2xl z-[9999] overflow-hidden"
+                  className="absolute right-0 mt-2 w-60 h-56 bg-slate-900/95 backdrop-blur-xl rounded border border-slate-700 shadow-2xl z-[99999] overflow-hidden"
                 >
                   {/* Terminal Header */}
                   <div className="bg-slate-800/70 border-b border-slate-700/50 p-3 flex items-center justify-center">
@@ -161,9 +161,6 @@ export default function Header({ onLogout, onOpenSettings }: HeaderProps) {
                       </svg>
                       <div>
                         <div className="font-semibold">로그아웃</div>
-                        <div className="text-xs text-red-500/70">
-                          시스템 종료
-                        </div>
                       </div>
                     </div>
                   </motion.button>

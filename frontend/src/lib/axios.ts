@@ -1,23 +1,22 @@
 import axios from "axios";
 
-let currentToken: string | null = null;
 let isRefreshing = false;
 let failedQueue: any[] = [];
+let refreshPromise: Promise<string> | null = null;
+let pendingRequests = new Set<string>();
 
-const processQueue = (error: any, token: string | null = null) => {
+const processQueue = (error: any) => {
   failedQueue.forEach(({ resolve, reject }) => {
     if (error) {
       reject(error);
     } else {
-      resolve(token);
+      resolve(null);
     }
   });
   failedQueue = [];
 };
 
-export const setAuthToken = (token: string | null) => {
-  currentToken = token;
-};
+export const setAuthToken = (token: string | null) => {};
 
 const AUTH_CHANNEL_NAME = "auth";
 const authChannel: BroadcastChannel | null =
@@ -30,9 +29,9 @@ let crossTabWaiters: Array<{
   reject: (e: any) => void;
 }> = [];
 
-const notifyCrossTabDone = (token: string, refreshToken?: string) => {
+const notifyCrossTabDone = () => {
   if (authChannel) {
-    authChannel.postMessage({ type: "refresh:done", token, refreshToken });
+    authChannel.postMessage({ type: "refresh:done" });
   }
 };
 const notifyCrossTabStart = () => {
@@ -53,11 +52,7 @@ if (authChannel) {
       crossTabRefreshing = true;
     } else if (data.type === "refresh:done") {
       crossTabRefreshing = false;
-      const token = data.token as string;
-      if (token) {
-        currentToken = token;
-      }
-      crossTabWaiters.forEach((w) => w.resolve(token));
+      crossTabWaiters.forEach((w) => w.resolve(""));
       crossTabWaiters = [];
     } else if (data.type === "refresh:error") {
       crossTabRefreshing = false;
@@ -74,11 +69,15 @@ const waitForCrossTab = async (): Promise<string> => {
     crossTabWaiters.push({ resolve, reject });
     setTimeout(() => {
       reject(new Error("Cross-tab refresh timeout"));
-    }, 15000);
+    }, 5000);
   });
 };
 
 export async function refreshAccessToken(): Promise<string> {
+  if (refreshPromise) {
+    return refreshPromise;
+  }
+
   if (isRefreshing) {
     return new Promise((resolve, reject) => {
       failedQueue.push({ resolve, reject });
@@ -91,32 +90,43 @@ export async function refreshAccessToken(): Promise<string> {
 
   isRefreshing = true;
   notifyCrossTabStart();
-  try {
-    const response = await fetch("/api/auth/refresh", {
-      method: "POST",
-      credentials: "include",
-    });
 
-    if (!response.ok) {
-      throw new Error("Token refresh failed");
+  refreshPromise = (async () => {
+    try {
+      const refreshToken = localStorage.getItem("refresh_token");
+      if (!refreshToken) {
+        throw new Error("No refresh token available");
+      }
+
+      const response = await fetch("/api/auth/refresh", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${refreshToken}`,
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        throw new Error("Token refresh failed");
+      }
+
+      const data = await response.json();
+
+      processQueue(null);
+      notifyCrossTabDone();
+      return "";
+    } catch (err) {
+      processQueue(err);
+      notifyCrossTabError((err as Error)?.message || "Token refresh failed");
+      throw err;
+    } finally {
+      isRefreshing = false;
+      refreshPromise = null;
     }
+  })();
 
-    const data = await response.json();
-    const newToken = data.access_token as string;
-
-    setAuthToken(newToken);
-
-    processQueue(null, newToken);
-    notifyCrossTabDone(newToken, data.refresh_token);
-    return newToken;
-  } catch (err) {
-    processQueue(err, null);
-    setAuthToken(null);
-    notifyCrossTabError((err as Error)?.message || "Token refresh failed");
-    throw err;
-  } finally {
-    isRefreshing = false;
-  }
+  return refreshPromise;
 }
 
 const axiosInstance = axios.create({
@@ -129,6 +139,14 @@ const axiosInstance = axios.create({
 
 axiosInstance.interceptors.request.use(
   (config) => {
+    const requestKey = `${config.method}:${config.url}`;
+
+    if (pendingRequests.has(requestKey)) {
+      console.log(`🚫 Duplicate request blocked: ${requestKey}`);
+      return Promise.reject(new Error("Duplicate request blocked"));
+    }
+
+    pendingRequests.add(requestKey);
     return config;
   },
   (error) => {
@@ -137,16 +155,23 @@ axiosInstance.interceptors.request.use(
 );
 
 axiosInstance.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const requestKey = `${response.config.method}:${response.config.url}`;
+    pendingRequests.delete(requestKey);
+    return response;
+  },
   async (error) => {
     const originalRequest = error.config;
+    const requestKey = `${originalRequest.method}:${originalRequest.url}`;
+    pendingRequests.delete(requestKey);
 
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (isRefreshing || crossTabRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
         })
-          .then((token) => {
+          .then(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 200));
             return axiosInstance.request(originalRequest);
           })
           .catch((err) => {
@@ -158,8 +183,10 @@ axiosInstance.interceptors.response.use(
 
       try {
         await refreshAccessToken();
+        await new Promise((resolve) => setTimeout(resolve, 200));
         return axiosInstance.request(originalRequest);
       } catch (refreshError) {
+        originalRequest._retry = false;
         if (
           typeof window !== "undefined" &&
           !window.location.pathname.includes("/login")
