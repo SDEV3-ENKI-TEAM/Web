@@ -33,6 +33,6 @@ export async function register(
     const response = await axiosInstance.post("/auth/signup", userData);
     return response.data;
   } catch (error: any) {
-    throw new Error(error.response?.data?.message || "회원가입 실패");
+    throw new Error(error.response?.data?.message || "중복된 아이디 입니다.");
   }
 }
