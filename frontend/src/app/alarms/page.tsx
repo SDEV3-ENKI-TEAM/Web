@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -37,7 +37,7 @@ function timeAgo(dateNum: number) {
   return `${Math.floor(diff / 86400)}일 전`;
 }
 
-export default function AlarmsPage() {
+function AlarmsContent() {
   const {
     alarms,
     sseConnected: wsConnected,
@@ -606,5 +606,19 @@ export default function AlarmsPage() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function AlarmsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-64">
+          <div className="text-slate-400">알람을 불러오는 중...</div>
+        </div>
+      }
+    >
+      <AlarmsContent />
+    </Suspense>
   );
 }
