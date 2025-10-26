@@ -681,16 +681,16 @@ function AlarmDetailContent() {
                               ),
                               code: ({ inline, children }: any) =>
                                 inline ? (
-                                  <code className="bg-slate-800 px-1 py-0.5 rounded text-cyan-400">
+                                  <code className="text-slate-300">
                                     {children}
                                   </code>
                                 ) : (
-                                  <code className="block bg-slate-900 p-3 rounded my-2 text-cyan-400 overflow-x-auto">
+                                  <code className="block text-slate-300 my-2">
                                     {children}
                                   </code>
                                 ),
                               pre: ({ children }) => (
-                                <pre className="bg-slate-900 p-3 rounded my-3 overflow-x-auto">
+                                <pre className="text-slate-300 my-3">
                                   {children}
                                 </pre>
                               ),

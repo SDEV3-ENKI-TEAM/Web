@@ -476,7 +476,7 @@ function AlarmsContent() {
                         <div className="text-xs text-slate-400 mb-1">
                           AI 요약
                         </div>
-                        <div className="w-full text-sm text-slate-200 bg-slate-800/50 border border-slate-700/50 rounded px-3 py-2 whitespace-pre-wrap leading-6 max-h-48 overflow-auto">
+                        <div className="w-full text-sm text-slate-200 bg-slate-800/50 border border-slate-700/50 rounded px-3 py-2 whitespace-normal leading-6 max-h-48 overflow-auto">
                           {alarm.ai_summary || "AI 추론중..."}
                         </div>
                       </div>

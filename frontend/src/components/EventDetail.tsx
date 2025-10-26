@@ -124,7 +124,7 @@ export default function EventDetail({
               상세 설명
             </div>
             <div className="bg-slate-800/30 border border-slate-700/50 rounded-lg p-3">
-              <div className="text-slate-300 text-sm font-mono leading-relaxed">
+              <div className="text-slate-300 text-sm leading-relaxed">
                 {event.ai_summary || "AI 추론중..."}
               </div>
             </div>
