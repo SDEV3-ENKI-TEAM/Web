@@ -463,8 +463,8 @@ function AlarmDetailContent() {
 
       let processName =
         tag.ProcessName || tag.Image || tag.EventName || "알 수 없는 활동";
-      if (typeof processName === "string" && processName.includes(".exe")) {
-        const match = processName.match(/([^\\/]+\.exe)/i);
+      if (typeof processName === "string" && processName.includes(".")) {
+        const match = processName.match(/([^\\/]+\.[a-zA-Z0-9]+)$/i);
         if (match) processName = match[1];
       }
 
