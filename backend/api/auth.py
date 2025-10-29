@@ -1,8 +1,14 @@
 import hashlib
 import secrets
 import string
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import List, Optional
+
+backend_dir = Path(__file__).parent.parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Cookie
 from fastapi.responses import JSONResponse
@@ -36,13 +42,22 @@ def generate_agent_key(length: int = 32) -> str:
     alphabet = string.ascii_letters + string.digits
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
-def hash_token(token: str) -> str:
-    """토큰 해시화"""
-    return hashlib.sha256(token.encode()).hexdigest()
+def hash_token(token: str) -> tuple[str, str]:
+    """토큰 해시화 (솔트 포함)"""
+    salt = secrets.token_hex(32)
+    salted_token = salt + token
+    hashed = hashlib.sha256(salted_token.encode()).hexdigest()
+    return hashed, salt
+
+def verify_token_hash(token: str, stored_hash: str, stored_salt: str) -> bool:
+    """토큰 해시 검증"""
+    salted_token = stored_salt + token
+    computed_hash = hashlib.sha256(salted_token.encode()).hexdigest()
+    return secrets.compare_digest(computed_hash, stored_hash)
 
 def store_refresh_token(db: Session, user_id: int, refresh_token: str, request: Request):
     """Refresh Token을 refresh_tokens 테이블에 저장"""
-    hashed_token = hash_token(refresh_token)
+    hashed_token, salt = hash_token(refresh_token)
     
     db.query(RefreshToken).filter(
         RefreshToken.user_id == user_id,
@@ -52,6 +67,7 @@ def store_refresh_token(db: Session, user_id: int, refresh_token: str, request: 
     new_refresh_token = RefreshToken(
         user_id=user_id,
         token_hash=hashed_token,
+        token_salt=salt,  # 솔트 저장
         expires_at=datetime.utcnow() + timedelta(hours=12),
         is_revoked=False,
         created_at=datetime.utcnow(),
@@ -65,36 +81,35 @@ def store_refresh_token(db: Session, user_id: int, refresh_token: str, request: 
 
 def verify_stored_refresh_token(db: Session, refresh_token: str, user_id: int) -> bool:
     """저장된 Refresh Token 검증"""
-    hashed_token = hash_token(refresh_token)
-    stored_token = db.query(RefreshToken).filter(
+    stored_tokens = db.query(RefreshToken).filter(
         RefreshToken.user_id == user_id,
-        RefreshToken.token_hash == hashed_token,
         RefreshToken.is_revoked == False,
         RefreshToken.expires_at > datetime.utcnow()
-    ).first()
-    return stored_token is not None
+    ).all()
+    
+    for stored_token in stored_tokens:
+        if verify_token_hash(refresh_token, stored_token.token_hash, stored_token.token_salt):
+            # 토큰 사용 시간 업데이트
+            stored_token.last_used_at = datetime.utcnow()
+            db.commit()
+            return True
+    
+    return False
 
 def revoke_refresh_token(db: Session, refresh_token: str, user_id: int):
     """Refresh Token 무효화"""
-    hashed_token = hash_token(refresh_token)
-    stored_token = db.query(RefreshToken).filter(
+    stored_tokens = db.query(RefreshToken).filter(
         RefreshToken.user_id == user_id,
-        RefreshToken.token_hash == hashed_token,
         RefreshToken.is_revoked == False
-    ).first()
-    if stored_token:
-        stored_token.is_revoked = True
-        db.commit()
+    ).all()
+    
+    for stored_token in stored_tokens:
+        if verify_token_hash(refresh_token, stored_token.token_hash, stored_token.token_salt):
+            stored_token.is_revoked = True
+            db.commit()
+            break
 
-def _get_user_by_username(db: Session, username: str) -> User:
-    """사용자명으로 사용자 조회"""
-    user = db.query(User).filter(User.username == username).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="사용자를 찾을 수 없습니다"
-        )
-    return user
+
 
 def _get_user_roles(db: Session, user_id: int) -> List[str]:
     """사용자 역할 조회"""

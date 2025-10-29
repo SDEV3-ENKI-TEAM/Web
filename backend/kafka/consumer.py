@@ -13,17 +13,23 @@ from kafka import KafkaConsumer
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
+import pymongo.errors
+import sqlalchemy.exc
+
 # .env 파일 로드
 try:
     env_path = Path(__file__).resolve().parent.parent / '.env'
     load_dotenv(env_path, encoding='utf-8')
-except Exception as e:
+except (FileNotFoundError, PermissionError) as e:
     print(f".env 파일 로드 중 오류: {e}")
     try:
         load_dotenv(env_path, encoding='cp949')
-    except Exception as e2:
+    except (FileNotFoundError, PermissionError) as e2:
         print(f"cp949 인코딩도 실패: {e2}")
         load_dotenv()
+except Exception as e:
+    print(f"예상치 못한 .env 파일 로드 오류: {e}")
+    load_dotenv()
 
 # database 모듈 임포트를 위한 경로 추가
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -52,14 +58,14 @@ class TraceConsumer:
         mongo_collection: str = None,
     ):
         # 환경 변수에서 값 가져오기 (인자로 전달된 값이 없으면)
-        self.kafka_broker = kafka_broker or os.getenv("KAFKA_BROKER", "172.31.11.219:19092")
-        self.kafka_topic = kafka_topic or os.getenv("KAFKA_TOPIC", "traces")
-        self.valkey_host = valkey_host or os.getenv("VALKEY_HOST", "127.0.0.1")
-        self.valkey_port = valkey_port or int(os.getenv("VALKEY_PORT", "6379"))
-        self.valkey_db = valkey_db if valkey_db is not None else int(os.getenv("VALKEY_DB", "0"))
-        self.mongo_uri = mongo_uri or os.getenv("MONGO_URI", "mongodb://admin:adminpassword@127.0.0.1:27017/?authSource=admin")
-        self.mongo_db = mongo_db or os.getenv("MONGO_DB", "security")
-        self.mongo_collection = mongo_collection or os.getenv("MONGO_COLLECTION", "rules")
+        self.kafka_broker = kafka_broker or os.getenv("KAFKA_BROKER")
+        self.kafka_topic = kafka_topic or os.getenv("KAFKA_TOPIC")
+        self.valkey_host = valkey_host or os.getenv("VALKEY_HOST")
+        self.valkey_port = valkey_port or int(os.getenv("VALKEY_PORT"))
+        self.valkey_db = valkey_db if valkey_db is not None else int(os.getenv("VALKEY_DB"))
+        self.mongo_uri = mongo_uri or os.getenv("MONGO_URI")
+        self.mongo_db = mongo_db or os.getenv("MONGO_DB")
+        self.mongo_collection = mongo_collection or os.getenv("MONGO_COLLECTION")
 
         self.consumer = None
         self.valkey_client = None
@@ -83,6 +89,9 @@ class TraceConsumer:
                 f"Kafka Consumer 초기화 완료: {self.kafka_broker} -> subscribe {[self.kafka_topic, 'ai-result-topic', 'llm_result']}"
             )
             return True
+        except (ConnectionError, TimeoutError) as e:
+            logger.error(f"Kafka Consumer 연결 실패: {e}")
+            return False
         except Exception as e:
             logger.error(f"Kafka Consumer 초기화 실패: {e}")
             return False
@@ -101,6 +110,9 @@ class TraceConsumer:
                 f"Valkey 클라이언트 초기화 완료: {self.valkey_host}:{self.valkey_port}"
             )
             return True
+        except (redis.ConnectionError, redis.TimeoutError) as e:
+            logger.error(f"Valkey 클라이언트 연결 실패: {e}")
+            return False
         except Exception as e:
             logger.error(f"Valkey 클라이언트 초기화 실패: {e}")
             return False
@@ -115,6 +127,12 @@ class TraceConsumer:
             self.mongo_client.admin.command("ping")
             logger.info(f"MongoDB 클라이언트 초기화 완료: {self.mongo_uri}")
             return True
+        except (pymongo.errors.ConnectionFailure, pymongo.errors.ServerSelectionTimeoutError) as e:
+            logger.error(f"MongoDB 클라이언트 연결 실패: {e}")
+            return False
+        except pymongo.errors.OperationFailure as e:
+            logger.error(f"MongoDB 클라이언트 작업 실패: {e}")
+            return False
         except Exception as e:
             logger.error(f"MongoDB 클라이언트 초기화 실패: {e}")
             return False
@@ -312,6 +330,12 @@ class TraceConsumer:
             logger.info(f"Trace 저장 완료: {trace_id} - {alarm_card['summary']}")
             return True
 
+        except (KeyError, TypeError, ValueError) as e:
+            logger.error(f"Trace 데이터 형식 오류: {e}")
+            return False
+        except (redis.ConnectionError, redis.TimeoutError) as e:
+            logger.error(f"Valkey 연결 오류로 Trace 처리 실패: {e}")
+            return False
         except Exception as e:
             logger.error(f"Trace 처리 실패: {e}")
             return False
@@ -418,8 +442,8 @@ class TraceConsumer:
                             sigma_like_keys = [t.get("key") for t in converted_tags if isinstance(t.get("key"), str) and t.get("key").startswith("sigma")]
                             if sigma_like_keys:
                                 logger.info(f"[SigmaDebug] trace_id={trace_id} spanId={span.get('spanId')} converted_sigma_keys={sigma_like_keys}")
-                        except Exception:
-                            pass
+                        except Exception as debug_error:
+                            logger.warning(f"Sigma debug logging failed: {debug_error}")
                 span_has_alert = False
                 span_id = span.get("spanId")
                 for tag in tags:
@@ -462,7 +486,8 @@ class TraceConsumer:
                                 value = first.get("stringValue") or first.get("intValue") or first.get("boolValue")
                             else:
                                 value = first
-                        except Exception:
+                        except Exception as parse_error:
+                            logger.warning(f"Failed to parse raw value: {parse_error}")
                             value = None
 
                     # 디버그: sigma 관련 태그 로깅 (원본 출력 포함)
@@ -471,7 +496,8 @@ class TraceConsumer:
                             def _preview(obj):
                                 try:
                                     s = json.dumps(obj, ensure_ascii=False) if not isinstance(obj, str) else obj
-                                except Exception:
+                                except Exception as json_error:
+                                    logger.warning(f"JSON serialization failed: {json_error}")
                                     s = str(obj)
                                 if s is None:
                                     return None
@@ -483,12 +509,12 @@ class TraceConsumer:
                             try:
                                 if 'attr_map' in locals() and isinstance(attr_map, dict) and key in attr_map:
                                     raw_attr_preview = _preview(attr_map.get(key))
-                            except Exception:
-                                pass
+                            except Exception as attr_error:
+                                logger.warning(f"Failed to preview attribute: {attr_error}")
                             logger.info(f"[SigmaRaw] trace_id={trace_id} spanId={span_id} tag={key} raw_tag={raw_tag_preview} raw_attr={raw_attr_preview}")
                             logger.info(f"[SigmaDebug] trace_id={trace_id} spanId={span_id} tag={key} value_preview={val_preview}")
-                    except Exception:
-                        pass
+                    except Exception as sigma_debug_error:
+                        logger.warning(f"Sigma debug processing failed: {sigma_debug_error}")
 
                     # sigma 룰 ID 매칭 (여러 alias 지원)
                     if key in sigma_key_aliases or key.startswith("sigma.alert"):
@@ -537,9 +563,10 @@ class TraceConsumer:
                                                         rid = item.get("stringValue") or item.get("intValue") or item.get("boolValue")
                                                     if rid is not None and rid != "":
                                                         candidate_ids.append(str(rid))
-                                        except Exception:
-                                            pass
-                        except Exception:
+                                        except Exception as json_parse_error:
+                                            logger.warning(f"Failed to parse JSON value: {json_parse_error}")
+                        except Exception as sigma_parse_error:
+                            logger.warning(f"Sigma value parsing failed: {sigma_parse_error}")
                             # fallback: 단일 값만 시도
                             if value is not None and value != "":
                                 candidate_ids.append(str(value))
@@ -550,8 +577,8 @@ class TraceConsumer:
                             unique_rule_ids.add(rid)
                             try:
                                 self.valkey_client.sadd(seen_rules_key, rid)
-                            except Exception:
-                                pass
+                            except Exception as valkey_error:
+                                logger.warning(f"Failed to add rule to Valkey set: {valkey_error}")
                             added_any = True
 
                         if added_any:
@@ -560,7 +587,8 @@ class TraceConsumer:
                                     added = self.valkey_client.sadd(seen_key, span_id)
                                     if added == 1:
                                         matched_span_count += 1
-                                except Exception:
+                                except Exception as valkey_span_error:
+                                    logger.warning(f"Failed to add span to Valkey set: {valkey_span_error}")
                                     matched_span_count += 1
                             else:
                                 matched_span_count += 1
@@ -573,14 +601,15 @@ class TraceConsumer:
                         unique_rule_ids.add(title_as_id)
                         try:
                             self.valkey_client.sadd(seen_rules_key, title_as_id)
-                        except Exception:
-                            pass
+                        except Exception as valkey_title_error:
+                            logger.warning(f"Failed to add title to Valkey set: {valkey_title_error}")
                         if span_id:
                             try:
                                 added = self.valkey_client.sadd(seen_key, span_id)
                                 if added == 1:
                                     matched_span_count += 1
-                            except Exception:
+                            except Exception as valkey_title_span_error:
+                                logger.warning(f"Failed to add title span to Valkey set: {valkey_title_span_error}")
                                 matched_span_count += 1
                         else:
                             matched_span_count += 1
@@ -597,8 +626,8 @@ class TraceConsumer:
                     logger.info(f"[SigmaDebug] trace_id={trace_id} no_sigma_match spans={len(spans)}")
                 else:
                     logger.info(f"[SigmaDebug] trace_id={trace_id} matched_rule_ids={list({rid for _, rid in sigma_alert_ids})}")
-            except Exception:
-                pass
+            except Exception as sigma_debug_error:
+                logger.warning(f"Sigma debug logging failed: {sigma_debug_error}")
             try:
                 self.valkey_client.expire(seen_key, 86400)
             except Exception:
@@ -769,6 +798,9 @@ class TraceConsumer:
 
             return alarm_card
 
+        except (KeyError, TypeError, ValueError) as e:
+            logger.error(f"알람 카드 생성 중 데이터 형식 오류: {e}")
+            return trace_data
         except Exception as e:
             logger.error(f"알람 카드 생성 실패: {e}")
             return trace_data
@@ -780,6 +812,9 @@ class TraceConsumer:
             korea_tz = timezone(timedelta(hours=9))
             korea_dt = utc_dt.astimezone(korea_tz)
             return korea_dt.strftime("%Y-%m-%dT%H:%M:%S")
+        except (ValueError, OSError) as e:
+            logger.error(f"시간 변환 실패 (잘못된 timestamp): {e}")
+            return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         except Exception as e:
             logger.error(f"시간 변환 실패: {e}")
             return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -959,11 +994,19 @@ class TraceConsumer:
                     prediction=decision,
                     similar_trace_ids=similar_trace_ids
                 )
-            except Exception as mysql_error:
+            except (sqlalchemy.exc.SQLAlchemyError, sqlalchemy.exc.OperationalError) as mysql_error:
                 logger.warning(f"MySQL 저장 실패 (계속 진행): {mysql_error}")
+            except Exception as mysql_error:
+                logger.warning(f"MySQL 저장 중 예상치 못한 오류 (계속 진행): {mysql_error}")
 
             logger.info(f"AI 요약 저장 완료: {trace_id} (existing)")
             return True
+        except (KeyError, TypeError, ValueError) as e:
+            logger.error(f"AI 결과 처리 중 데이터 형식 오류: {e}")
+            return False
+        except (redis.ConnectionError, redis.TimeoutError) as e:
+            logger.error(f"Valkey 연결 오류로 AI 결과 처리 실패: {e}")
+            return False
         except Exception as e:
             logger.error(f"AI 결과 처리 실패: {e}")
             return False
@@ -1019,6 +1062,10 @@ class TraceConsumer:
                 db.add(new_analysis)
                 db.commit()
                 logger.info(f"MySQL 저장 완료: {trace_id}")
+        except (sqlalchemy.exc.SQLAlchemyError, sqlalchemy.exc.OperationalError) as e:
+            db.rollback()
+            logger.error(f"MySQL 데이터베이스 오류: {e}")
+            raise
         except Exception as e:
             db.rollback()
             logger.error(f"MySQL 저장 실패: {e}")
@@ -1075,6 +1122,10 @@ class TraceConsumer:
                                 else:
                                     logger.warning(f"Trace 처리 실패: {trace_id}")
 
+                            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                                logger.error(f"메시지 디코딩 오류: {e}")
+                            except (KeyError, TypeError, ValueError) as e:
+                                logger.error(f"메시지 데이터 형식 오류: {e}")
                             except Exception as e:
                                 logger.error(f"메시지 처리 중 오류: {e}")
 

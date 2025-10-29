@@ -1,3 +1,5 @@
+"use strict";
+
 import { proxyWithAutoRefresh } from "../../_utils/authProxy";
 
 export async function POST(request: Request) {

@@ -1,3 +1,5 @@
+"use strict";
+
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(
@@ -29,7 +31,7 @@ export async function GET(
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error("이벤트 타입 API 오류:", error);
+    // console.error("이벤트 타입 API 오류:", error);
     return NextResponse.json(
       { error: "서버 오류가 발생했습니다" },
       { status: 500 }

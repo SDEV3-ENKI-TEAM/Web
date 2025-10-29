@@ -1,3 +1,5 @@
+"use strict";
+
 import { cookies } from "next/headers";
 
 export async function verifyCsrf(request: Request) {

@@ -22,7 +22,10 @@ export default function LoginPage() {
       await login({ username, password });
       try {
         await fetch("/api/alarms/warm-cache", { method: "POST" });
-      } catch {}
+      } catch (warmCacheError) {
+        // console.warn("Failed to warm cache after login:", warmCacheError);
+        // Cache warming failure is not critical for login success
+      }
       router.push("/dashboard");
     } catch (err: any) {
       setError(err.message || "Authentication failed. Please try again.");

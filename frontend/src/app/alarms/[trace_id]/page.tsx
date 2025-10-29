@@ -1,3 +1,4 @@
+"use strict";
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
@@ -11,7 +12,11 @@ import ReactFlow, {
   ReactFlowProvider,
   Position,
 } from "reactflow";
-import "reactflow/dist/style.css";
+import {
+  safeRemoveMarkdownBlocks,
+  safeSplitLines,
+  safeRemoveMarkdownHeader,
+} from "@/lib/safeRegex";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import CustomNode from "@/components/CustomNode";
@@ -19,6 +24,7 @@ import axiosInstance from "@/lib/axios";
 import { useAuth } from "@/context/AuthContext";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import "reactflow/dist/style.css";
 
 interface Trace {
   trace_id: string;
@@ -185,20 +191,17 @@ function AlarmDetailContent() {
     if (!raw || typeof raw !== "string")
       return [] as { title: string; content: string }[];
     try {
-      const stripped = raw
-        .replace(/```markdown\n?/, "")
-        .replace(/\n?```$/, "")
-        .trim();
-      const lines = stripped.split(/\r?\n/);
+      const stripped = safeRemoveMarkdownBlocks(raw);
+      const lines = safeSplitLines(stripped);
       const sections: { title: string; content: string }[] = [];
       let currentTitle = "";
       let currentBody: string[] = [];
       for (const line of lines) {
-        if (/^#\s+/.test(line)) {
+        if (line.startsWith("# ")) {
           // H1은 무시 (전체 제목)
           continue;
         }
-        if (/^##\s+/.test(line)) {
+        if (line.startsWith("## ")) {
           if (currentTitle) {
             sections.push({
               title: currentTitle,
@@ -206,7 +209,7 @@ function AlarmDetailContent() {
             });
             currentBody = [];
           }
-          currentTitle = line.replace(/^##\s+/, "").trim();
+          currentTitle = safeRemoveMarkdownHeader(line);
         } else {
           currentBody.push(line);
         }
@@ -264,7 +267,7 @@ function AlarmDetailContent() {
       const data = await response.json();
       return data.title || sigmaId;
     } catch (error) {
-      console.error("Sigma rule 조회 실패:", error);
+      // console.error("Sigma rule 조회 실패:", error);
     }
     return sigmaId; // 실패 시 ID 반환
   };
@@ -396,7 +399,7 @@ function AlarmDetailContent() {
           await fetchAllSigmaTitles(data.data.events);
         }
       } catch (error) {
-        console.error("Trace fetch failed:", error);
+        // console.error("Trace fetch failed:", error);
       } finally {
         setIsLoading(false);
       }

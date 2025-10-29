@@ -28,10 +28,11 @@ class OpenSearchAnalyzer:
             opensearch_username = os.getenv('OPENSEARCH_USERNAME')
             opensearch_password = os.getenv('OPENSEARCH_PASSWORD')
 
-            if opensearch_host.startswith('https://'):
-                opensearch_host = opensearch_host.replace('https://', '')
-            elif opensearch_host.startswith('http://'):
-                opensearch_host = opensearch_host.replace('http://', '')
+            if opensearch_host and isinstance(opensearch_host, str):
+                if opensearch_host.startswith('https://'):
+                    opensearch_host = opensearch_host.replace('https://', '')
+                elif opensearch_host.startswith('http://'):
+                    opensearch_host = opensearch_host.replace('http://', '')
             
             hosts = [{'host': opensearch_host, 'port': opensearch_port}]
             

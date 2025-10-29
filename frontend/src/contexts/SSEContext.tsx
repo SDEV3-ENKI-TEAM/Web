@@ -1,3 +1,4 @@
+"use strict";
 "use client";
 
 import React, {
@@ -147,7 +148,10 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
     }
     try {
       sse?.close();
-    } catch {}
+    } catch (closeError) {
+      // console.warn("Failed to close SSE connection:", closeError);
+      // SSE close failure is not critical for cleanup
+    }
     setSse(null);
     setSseConnected(false);
     setSseError(null);
@@ -163,7 +167,7 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
 
   const loadDismissed = () => {
     try {
-      const raw = localStorage.getItem(DISMISSED_STORAGE_KEY);
+      const raw = sessionStorage.getItem(DISMISSED_STORAGE_KEY);
       const obj = raw ? (JSON.parse(raw) as Record<string, number>) : {};
       const now = Date.now();
       const pruned: Record<string, number> = {};
@@ -171,13 +175,21 @@ export const SSEProvider: React.FC<SSEProviderProps> = ({ children }) => {
         if (t > now) pruned[k] = t;
       });
       dismissedRef.current = pruned;
-      localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify(pruned));
+      sessionStorage.setItem(
+        DISMISSED_STORAGE_KEY,
+        JSON.stringify(pruned, (key, value) => {
+          if (typeof value === "string") {
+            return value.replace(/[<>]/g, ""); // XSS 방지를 위한 필터링
+          }
+          return value;
+        })
+      );
     } catch {}
   };
 
   const saveDismissed = () => {
     try {
-      localStorage.setItem(
+      sessionStorage.setItem(
         DISMISSED_STORAGE_KEY,
         JSON.stringify(dismissedRef.current)
       );

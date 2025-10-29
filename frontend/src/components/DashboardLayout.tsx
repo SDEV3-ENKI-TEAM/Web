@@ -4,6 +4,8 @@ import React from "react";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import GlobalNotification from "@/components/GlobalNotification";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -88,6 +90,20 @@ function DashboardLayoutComponent({
       </div>
 
       <GlobalNotification />
+
+      <ToastContainer
+        position="bottom-right"
+        autoClose={2000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="dark"
+        toastClassName="bg-slate-800 border border-slate-700 text-slate-200"
+      />
 
       <style jsx>{`
         @keyframes float {

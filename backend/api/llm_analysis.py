@@ -1,5 +1,11 @@
 import json
+import sys
+from pathlib import Path
 from typing import Optional
+
+backend_dir = Path(__file__).parent.parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -27,7 +33,11 @@ async def get_llm_analysis(
     if analysis.similar_trace_ids:
         try:
             similar_trace_ids = json.loads(analysis.similar_trace_ids)
-        except Exception:
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON decode error for similar_trace_ids: {e}")
+            similar_trace_ids = []
+        except Exception as e:
+            logger.warning(f"Unexpected error parsing similar_trace_ids: {e}")
             similar_trace_ids = []
     
     return {
@@ -71,7 +81,11 @@ async def get_all_llm_analysis(
         if analysis.similar_trace_ids:
             try:
                 similar_trace_ids = json.loads(analysis.similar_trace_ids)
-            except Exception:
+            except json.JSONDecodeError as e:
+                logger.warning(f"JSON decode error for similar_trace_ids in batch: {e}")
+                similar_trace_ids = []
+            except Exception as e:
+                logger.warning(f"Unexpected error parsing similar_trace_ids in batch: {e}")
                 similar_trace_ids = []
         
         results.append({

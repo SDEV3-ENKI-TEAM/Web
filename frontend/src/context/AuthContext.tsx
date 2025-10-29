@@ -1,3 +1,4 @@
+"use strict";
 "use client";
 
 import React, {
@@ -115,7 +116,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setIsLoggedIn(true);
     try {
       window.dispatchEvent(new Event("auth:login"));
-    } catch {}
+    } catch (eventError) {
+      // console.warn("Failed to dispatch auth:login event:", eventError);
+      // Event dispatch failure is not critical for login success
+    }
   };
 
   const register = async (userData: SignupRequest) => {
@@ -129,14 +133,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         credentials: "include",
       });
     } catch (error) {
-      console.error("Logout API error:", error);
+      // console.error("Logout API error:", error);
     } finally {
       setCurrentUser(null);
       setTokenAndUpdateAxios(null);
       setIsLoggedIn(false);
       try {
         window.dispatchEvent(new Event("auth:logout"));
-      } catch {}
+      } catch (eventError) {
+        // console.warn("Failed to dispatch auth:logout event:", eventError);
+        // Event dispatch failure is not critical for logout success
+      }
     }
   };
 

@@ -1,3 +1,5 @@
+"use strict";
+
 import { NextRequest } from "next/server";
 import { cookies } from "next/headers";
 
@@ -11,13 +13,13 @@ export async function GET(request: NextRequest) {
   const token = cookieStore.get("access_token")?.value;
   if (!token) return new Response("unauthorized", { status: 401 });
 
-  const backendUrl = `http://127.0.0.1:8004/sse/alarms?limit=${encodeURIComponent(
-    limit
-  )}`;
+  const backendUrl = `${
+    process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8004"
+  }/sse/alarms?limit=${encodeURIComponent(limit)}`;
 
   const doFetch = async (authToken: string | null) => {
-    console.log(`🔗 Next.js API 라우트에서 백엔드로 요청: ${backendUrl}`);
-    console.log(`🔑 인증 토큰: ${authToken ? "있음" : "없음"}`);
+    // console.log(`🔗 Next.js API 라우트에서 백엔드로 요청: ${backendUrl}`);
+    // console.log(`🔑 인증 토큰: ${authToken ? "있음" : "없음"}`);
     try {
       const response = await fetch(backendUrl, {
         headers: {
@@ -28,15 +30,17 @@ export async function GET(request: NextRequest) {
         },
         signal: request.signal,
       });
-      console.log(`📡 백엔드 응답 상태: ${response.status}`);
-      console.log(
-        `📡 백엔드 응답 헤더: ${JSON.stringify(
-          Object.fromEntries(response.headers.entries())
-        )}`
-      );
+      // console.log(`📡 백엔드 응답 상태: ${response.status}`);
+      // console.log(
+      //   `📡 백엔드 응답 헤더: ${JSON.stringify(
+      //     Object.fromEntries(response.headers.entries()),
+      //     (key, value) =>
+      //       typeof value === "string" ? value.replace(/[<>]/g, "") : value
+      //   )}`
+      // );
       return response;
     } catch (error) {
-      console.error(`❌ 백엔드 연결 실패: ${error}`);
+      // console.error(`❌ 백엔드 연결 실패: ${error}`);
       throw error;
     }
   };
@@ -61,12 +65,21 @@ export async function GET(request: NextRequest) {
         try {
           const data = await refreshResp.json();
           newAccess = data?.access_token || null;
-        } catch {}
+        } catch (jsonError) {
+          // console.warn(
+          //   "Failed to parse refresh token response in SSE route:",
+          //   jsonError
+          // );
+          // Continue without new access token
+        }
         if (newAccess) {
           resp = await doFetch(newAccess);
         }
       }
-    } catch {}
+    } catch (refreshError) {
+      // console.warn("Failed to refresh token in SSE route:", refreshError);
+      // Continue with original response
+    }
   }
 
   if (!resp.ok || !resp.body) {

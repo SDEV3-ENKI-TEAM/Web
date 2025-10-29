@@ -93,7 +93,7 @@ export async function refreshAccessToken(): Promise<string> {
 
   refreshPromise = (async () => {
     try {
-      const refreshToken = localStorage.getItem("refresh_token");
+      const refreshToken = sessionStorage.getItem("refresh_token");
       if (!refreshToken) {
         throw new Error("No refresh token available");
       }
@@ -142,7 +142,7 @@ axiosInstance.interceptors.request.use(
     const requestKey = `${config.method}:${config.url}`;
 
     if (pendingRequests.has(requestKey)) {
-      console.log(`🚫 Duplicate request blocked: ${requestKey}`);
+      // console.log(`🚫 Duplicate request blocked: ${requestKey}`);
       return Promise.reject(new Error("Duplicate request blocked"));
     }
 

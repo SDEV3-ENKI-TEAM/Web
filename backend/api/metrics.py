@@ -1,10 +1,20 @@
+import sys
 from datetime import datetime
+from pathlib import Path
+
+backend_dir = Path(__file__).parent.parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+
+import sqlalchemy.exc
+import logging
 
 from utils.auth_deps import get_current_user_with_roles
 
 router = APIRouter(prefix="/metrics", tags=["metrics"], dependencies=[Depends(get_current_user_with_roles)])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/timeseries")
@@ -62,7 +72,11 @@ async def get_timeseries(request: Request, current_user: dict = Depends(get_curr
 			step = len(result) // 30
 			result = result[::step]
 		return result
+	except (ValueError, TypeError, KeyError) as e:
+		logger.error(f"Timeseries 데이터 처리 오류: {e}")
+		raise HTTPException(status_code=500, detail=f"데이터 처리 오류: {str(e)}")
 	except Exception as e:
+		logger.error(f"Timeseries 예상치 못한 오류: {e}")
 		raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -107,7 +121,11 @@ async def get_donut_stats_from_mysql(current_user: dict = Depends(get_current_us
             }
         finally:
             db.close()
+    except (sqlalchemy.exc.SQLAlchemyError, sqlalchemy.exc.OperationalError) as e:
+        logger.error(f"Database error in donut-stats: {e}")
+        raise HTTPException(status_code=500, detail=f"데이터베이스 오류: {str(e)}")
     except Exception as e:
+        logger.error(f"Unexpected error in donut-stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -137,7 +155,11 @@ async def get_trace_stats(current_user: dict = Depends(get_current_user_with_rol
 			"sigmaMatchedTraces": malicious_count,
 			"unchecked": unchecked_count,
 		}
+	except (sqlalchemy.exc.SQLAlchemyError, sqlalchemy.exc.OperationalError) as e:
+		logger.error(f"Database error in trace-stats: {e}")
+		raise HTTPException(status_code=500, detail=f"데이터베이스 오류: {str(e)}")
 	except Exception as e:
+		logger.error(f"Unexpected error in trace-stats: {e}")
 		raise HTTPException(status_code=500, detail=str(e))
 	finally:
 		db.close()
@@ -190,7 +212,11 @@ async def get_bar_chart_data(request: Request, current_user: dict = Depends(get_
 			}
 			for user, stats in sorted_users
 		]
+	except (ValueError, TypeError, KeyError) as e:
+		logger.error(f"Bar chart 데이터 처리 오류: {e}")
+		raise HTTPException(status_code=500, detail=f"데이터 처리 오류: {str(e)}")
 	except Exception as e:
+		logger.error(f"Unexpected error in bar-chart: {e}")
 		raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -235,5 +261,9 @@ async def get_heatmap_data(request: Request, current_user: dict = Depends(get_cu
 			count = time_stats.get(hour, 0)
 			heatmap_data.append({'hour': hour, 'count': count})
 		return heatmap_data
+	except (ValueError, TypeError, KeyError) as e:
+		logger.error(f"Heatmap 데이터 처리 오류: {e}")
+		raise HTTPException(status_code=500, detail=f"데이터 처리 오류: {str(e)}")
 	except Exception as e:
+		logger.error(f"Unexpected error in heatmap: {e}")
 		raise HTTPException(status_code=500, detail=str(e))

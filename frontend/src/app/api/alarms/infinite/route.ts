@@ -1,3 +1,5 @@
+"use strict";
+
 import { NextRequest } from "next/server";
 import { proxyWithAutoRefresh } from "../../_utils/authProxy";
 

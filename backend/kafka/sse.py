@@ -2,10 +2,15 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+backend_dir = Path(__file__).parent.parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 import jwt
 import redis
@@ -14,6 +19,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import StreamingResponse
+from utils.user_validation import get_safe_user_id
 from starlette.requests import Request
 
 try:
@@ -28,7 +34,7 @@ REFRESH_SECRET_KEY = os.getenv("JWT_REFRESH_SECRET_KEY")
 ISSUER = "shitftx"
 AUDIENCE = "shitftx-users"
 
-if not SECRET_KEY or not isinstance(SECRET_KEY, str):
+if not SECRET_KEY or not isinstance(SECRET_KEY, str) or not SECRET_KEY.strip():
     raise RuntimeError("JWT_SECRET_KEY not set or invalid")
 
 logging.basicConfig(
@@ -133,13 +139,16 @@ class SSEManager:
         self.user_queues: Dict[str, List[asyncio.Queue]] = {}
 
     def connect(self, user_id: str) -> asyncio.Queue:
+        # 사용자 ID 검증 및 정규화
+        safe_user_id = get_safe_user_id(user_id, "anonymous")
         queue: asyncio.Queue = asyncio.Queue()
-        self.user_queues.setdefault(user_id, []).append(queue)
-        logger.info(f"새로운 SSE 연결: 사용자 {user_id} (총 연결 수: {len(self.user_queues[user_id])})")
+        self.user_queues.setdefault(safe_user_id, []).append(queue)
+        logger.info(f"새로운 SSE 연결: 사용자 {safe_user_id} (총 연결 수: {len(self.user_queues[safe_user_id])})")
         return queue
 
     def disconnect(self, user_id: str, queue: asyncio.Queue):
-        queues = self.user_queues.get(user_id)
+        safe_user_id = get_safe_user_id(user_id, "anonymous")
+        queues = self.user_queues.get(safe_user_id)
         if not queues:
             return
         try:
@@ -147,13 +156,15 @@ class SSEManager:
         except ValueError:
             pass
         if not queues:
-            del self.user_queues[user_id]
-        logger.info(f"SSE 연결 해제: 사용자 {user_id} (남은 연결 수: {len(self.user_queues.get(user_id, []))})")
+            del self.user_queues[safe_user_id]
+        logger.info(f"SSE 연결 해제: 사용자 {safe_user_id} (남은 연결 수: {len(self.user_queues.get(safe_user_id, []))})")
 
     async def broadcast_to_user(self, message: str, user_id: str):
-        if user_id not in self.user_queues:
+        # 사용자 ID 검증 및 정규화
+        safe_user_id = get_safe_user_id(user_id, "anonymous")
+        if safe_user_id not in self.user_queues:
             return
-        for q in list(self.user_queues[user_id]):
+        for q in list(self.user_queues[safe_user_id]):
             try:
                 await q.put(message)
             except Exception as e:
@@ -256,7 +267,7 @@ async def sse_alarms(request: Request, limit: int = 50, token: Optional[str] = N
         if not user_info:
             return {"error": "JWT 토큰이 유효하지 않습니다"}
 
-        username = str(user_info["username"])  
+        username = get_safe_user_id(str(user_info.get("username", "")), "anonymous")
         logger.info(f"✅ 사용자 인증 성공: {username}")
 
         recent_alarms = valkey_reader.get_recent_alarms(limit, username)
@@ -345,8 +356,8 @@ async def broadcast_events():
 if __name__ == "__main__":
     uvicorn.run(
         "sse:app",
-        host="0.0.0.0",
-        port=8004,
+        host=os.getenv("SSE_HOST"),
+        port=int(os.getenv("SSE_PORT")),
         reload=True,
         log_level="info",
         ssl_keyfile=None,  # SSL 인증서가 있다면 경로 지정

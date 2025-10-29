@@ -1,4 +1,12 @@
+import sys
+from pathlib import Path
+import sys
+from pathlib import Path
 from typing import List, Optional
+
+backend_dir = Path(__file__).parent.parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 from fastapi import Depends, HTTPException, status, Request, Cookie
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer

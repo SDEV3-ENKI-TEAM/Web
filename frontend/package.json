@@ -20,6 +20,7 @@
     "react-dom": "^18.2.0",
     "react-grid-layout": "^1.5.1",
     "react-markdown": "^10.1.0",
+    "react-toastify": "^11.0.5",
     "reactflow": "^11.11.4",
     "remark-gfm": "^4.0.1"
   },

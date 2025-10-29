@@ -1,3 +1,5 @@
+"use strict";
+
 import axiosInstance, { setAuthToken } from "./axios";
 import {
   JwtResponse,

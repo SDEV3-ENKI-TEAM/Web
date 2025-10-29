@@ -1,9 +1,15 @@
 import logging
 import os
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 from contextlib import asynccontextmanager
+
+# backend 디렉토리를 Python 경로에 추가
+backend_dir = Path(__file__).parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, Request
@@ -18,6 +24,7 @@ from starlette.responses import StreamingResponse
 import redis
 import asyncio
 import json
+from utils.user_validation import get_safe_user_id
 import time
 
 from api.auth import router as auth_router
@@ -320,28 +327,29 @@ async def health_check(request: Request):
     
     return health_status
 
-# SSE Manager for real-time alarms
 class SSEManager:
     """SSE 연결 관리"""
     def __init__(self):
         self.user_queues: dict = {}
 
     def connect(self, user_id: str) -> asyncio.Queue:
+        safe_user_id = get_safe_user_id(user_id, "anonymous")
         queue = asyncio.Queue()
-        self.user_queues.setdefault(user_id, []).append(queue)
-        logger.info(f"새로운 SSE 연결: 사용자 {user_id}")
+        self.user_queues.setdefault(safe_user_id, []).append(queue)
+        logger.info(f"새로운 SSE 연결: 사용자 {safe_user_id}")
         return queue
 
     def disconnect(self, user_id: str, queue: asyncio.Queue):
-        queues = self.user_queues.get(user_id)
+        safe_user_id = get_safe_user_id(user_id, "anonymous")
+        queues = self.user_queues.get(safe_user_id)
         if queues:
             try:
                 queues.remove(queue)
             except ValueError:
                 pass
             if not queues:
-                del self.user_queues[user_id]
-        logger.info(f"SSE 연결 해제: 사용자 {user_id}")
+                del self.user_queues[safe_user_id]
+        logger.info(f"SSE 연결 해제: 사용자 {safe_user_id}")
 
 sse_manager = SSEManager()
 
@@ -353,7 +361,7 @@ def get_recent_alarms_from_valkey(valkey_client, limit: int, username: str):
         
         trace_keys.sort(reverse=True)
         
-        for trace_key in trace_keys[:limit * 2]:  # 필터링을 고려해 더 많이 조회
+        for trace_key in trace_keys[:limit * 2]:
             try:
                 trace_data = valkey_client.get(trace_key)
                 if not trace_data:
@@ -390,7 +398,7 @@ async def sse_alarms(request: Request, limit: int = 50):
         # Authorization 헤더 확인
         if not access_token:
             auth_header = request.headers.get("authorization")
-            if auth_header and auth_header.lower().startswith("bearer "):
+            if auth_header and isinstance(auth_header, str) and auth_header.lower().startswith("bearer "):
                 access_token = auth_header.split(" ", 1)[1].strip()
         
         if not access_token:
@@ -407,7 +415,7 @@ async def sse_alarms(request: Request, limit: int = 50):
                 content={"error": "유효하지 않은 토큰"}
             )
         
-        username = str(user_info.get("username"))
+        username = get_safe_user_id(str(user_info.get("username", "")), "anonymous")
         
         # Valkey 클라이언트 가져오기
         valkey_client = getattr(app.state, "valkey", None)
@@ -421,7 +429,7 @@ async def sse_alarms(request: Request, limit: int = 50):
         recent_alarms = get_recent_alarms_from_valkey(valkey_client, limit, username)
         initial_message = {
             "type": "initial_data",
-            "alarms": recent_alarms or [],
+            "alarms": recent_alarms if recent_alarms is not None else [],
             "timestamp": int(time.time() * 1000),
             "user_id": user_info.get("user_id")
         }
@@ -462,4 +470,4 @@ async def sse_alarms(request: Request, limit: int = 50):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8003) 
+    uvicorn.run(app, host=os.getenv("API_HOST"), port=int(os.getenv("API_PORT"))) 

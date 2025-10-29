@@ -17,9 +17,9 @@ load_dotenv(dotenv_path=env_path, encoding="utf-8-sig", override=True)
 SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 REFRESH_SECRET_KEY = os.getenv("JWT_REFRESH_SECRET_KEY")
 
-if not SECRET_KEY or not isinstance(SECRET_KEY, str):
+if not SECRET_KEY or not isinstance(SECRET_KEY, str) or not SECRET_KEY.strip():
     raise RuntimeError("JWT_SECRET_KEY not set or invalid")
-if not REFRESH_SECRET_KEY or not isinstance(REFRESH_SECRET_KEY, str):
+if not REFRESH_SECRET_KEY or not isinstance(REFRESH_SECRET_KEY, str) or not REFRESH_SECRET_KEY.strip():
     raise RuntimeError("JWT_REFRESH_SECRET_KEY not set or invalid")
 
 ALGORITHM = "HS256"

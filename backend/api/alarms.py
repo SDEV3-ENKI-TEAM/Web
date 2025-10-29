@@ -1,12 +1,21 @@
 import os
 import json
 import logging
-
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, List, Any, Dict
+
+backend_dir = Path(__file__).parent.parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+
+import pymongo.errors
+import redis
+import sqlalchemy.exc
 
 from utils.auth_deps import get_current_user_with_roles
 
@@ -33,8 +42,14 @@ def safe_mongo_find_one(collection, query: Dict[str, Any]) -> Optional[Dict[str,
 	
 	try:
 		return collection.find_one(query)
+	except (pymongo.errors.ConnectionFailure, pymongo.errors.ServerSelectionTimeoutError) as e:
+		logger.error(f"MongoDB connection error: {e}")
+		return None
+	except pymongo.errors.OperationFailure as e:
+		logger.error(f"MongoDB operation error: {e}")
+		return None
 	except Exception as e:
-		logger.error(f"MongoDB query error: {e}")
+		logger.error(f"MongoDB unexpected error: {e}")
 		return None
 
 
@@ -53,7 +68,8 @@ def parse_sigma_alert(sigma_alert_value) -> List[str]:
 			return [str(rid).strip() for rid in sigma_alert_value if rid]
 		else:
 			return [str(sigma_alert_value).strip()]
-	except Exception:
+	except (json.JSONDecodeError, TypeError, ValueError) as e:
+		logger.warning(f"Sigma alert parsing error: {e}")
 		return [str(sigma_alert_value).strip()]
 
 
@@ -86,7 +102,11 @@ async def get_alarm_meta_batch(payload: TraceIdsPayload, request: Request, curre
 		if vk:
 			try:
 				cached = vk.mget(keys)
-			except Exception:
+			except (redis.ConnectionError, redis.TimeoutError) as e:
+				logger.warning(f"Valkey connection error: {e}")
+				cached = [None] * len(keys)
+			except Exception as e:
+				logger.warning(f"Valkey mget error: {e}")
 				cached = [None] * len(keys)
 		else:
 			cached = [None] * len(keys)
@@ -98,8 +118,10 @@ async def get_alarm_meta_batch(payload: TraceIdsPayload, request: Request, curre
 				try:
 					import json
 					results_map[tid] = json.loads(raw)
-				except Exception:
-					pass
+				except json.JSONDecodeError as e:
+					logger.warning(f"JSON decode error for trace {tid}: {e}")
+				except Exception as e:
+					logger.warning(f"Unexpected error parsing trace {tid}: {e}")
 			else:
 				miss_ids.append(tid)
 
@@ -193,7 +215,11 @@ async def get_alarm_meta_batch(payload: TraceIdsPayload, request: Request, curre
 				if matched_rules:
 					try:
 						top_score = max(r.get("severity_score", 0) for r in matched_rules)
-					except Exception:
+					except (ValueError, TypeError) as e:
+						logger.warning(f"Severity score calculation error: {e}")
+						top_score = 0
+					except Exception as e:
+						logger.warning(f"Unexpected error calculating top score: {e}")
 						top_score = 0
 					candidates = [r for r in matched_rules if r.get("severity_score", 0) == top_score]
 					candidates.sort(key=lambda r: (-_level_weight(r.get("level", "")), str(r.get("sigma_id", ""))))
@@ -219,8 +245,10 @@ async def get_alarm_meta_batch(payload: TraceIdsPayload, request: Request, curre
 					try:
 						vk.set(f"trace:{tid}", json.dumps(card, ensure_ascii=False))
 						vk.expire(f"trace:{tid}", 86400)
-					except Exception:
-						pass
+					except (redis.ConnectionError, redis.TimeoutError) as e:
+						logger.warning(f"Valkey connection error saving trace {tid}: {e}")
+					except Exception as e:
+						logger.warning(f"Valkey save error for trace {tid}: {e}")
 
 		ordered = [results_map.get(tid) for tid in payload.trace_ids if results_map.get(tid)]
 		return {"meta": ordered}
@@ -280,7 +308,11 @@ async def get_alarm_traces(request: Request, offset: int = 0, limit: int = 50, c
 			if vk:
 				try:
 					cached = vk.mget(keys)
-				except Exception:
+				except (redis.ConnectionError, redis.TimeoutError) as e:
+					logger.warning(f"Valkey connection error in infinite endpoint: {e}")
+					cached = [None] * len(keys)
+				except Exception as e:
+					logger.warning(f"Valkey mget error in infinite endpoint: {e}")
 					cached = [None] * len(keys)
 			else:
 				cached = [None] * len(keys)
@@ -452,8 +484,10 @@ async def get_alarms_infinite(request: Request, cursor: Optional[str] = None, li
 				query["query"]["bool"]["filter"] = [
 					{"range": {"startTimeMillis": {"lt": int(cursor_time.timestamp() * 1000)}}}
 				]
-			except:
-				pass
+			except (ValueError, TypeError) as e:
+				logger.warning(f"Invalid cursor format: {e}")
+			except Exception as e:
+				logger.warning(f"Unexpected error parsing cursor: {e}")
 
 		response = opensearch_analyzer.client.search(index="jaeger-span-*", body=query)
 		alarms = []
@@ -513,8 +547,10 @@ async def get_alarms_infinite(request: Request, cursor: Optional[str] = None, li
 						alarm["checked"] = bool(llm_info.checked) if llm_info.checked is not None else False
 			finally:
 				db.close()
-		except Exception:
-			pass
+		except (sqlalchemy.exc.SQLAlchemyError, sqlalchemy.exc.OperationalError) as e:
+			logger.warning(f"Database error in LLM analysis: {e}")
+		except Exception as e:
+			logger.warning(f"Unexpected error in LLM analysis: {e}")
 		
 		return {
 			"alarms": alarms[:limit],
@@ -822,8 +858,12 @@ async def update_alarm_status(payload: AlarmStatusUpdate, request: Request, curr
 						alarm_data['checked'] = payload.checked
 						vk.set(f"trace:{payload.trace_id}", json.dumps(alarm_data, ensure_ascii=False))
 						vk.expire(f"trace:{payload.trace_id}", 86400)
-				except Exception:
-					pass
+				except (redis.ConnectionError, redis.TimeoutError) as e:
+					logger.warning(f"Valkey connection error updating alarm status: {e}")
+				except json.JSONDecodeError as e:
+					logger.warning(f"JSON decode error updating alarm status: {e}")
+				except Exception as e:
+					logger.warning(f"Unexpected error updating alarm status: {e}")
 			
 			return {"success": True, "message": "알림 상태가 업데이트되었습니다."}
 		finally:
@@ -885,7 +925,11 @@ async def warm_cache(request: Request, limit: int = 200, current_user: dict = De
 		keys = [f"trace:{tid}" for tid in candidate_ids]
 		try:
 			cached_values = vk.mget(keys)
-		except Exception:
+		except (redis.ConnectionError, redis.TimeoutError) as e:
+			logger.warning(f"Valkey connection error in warm-cache: {e}")
+			cached_values = [None] * len(keys)
+		except Exception as e:
+			logger.warning(f"Valkey mget error in warm-cache: {e}")
 			cached_values = [None] * len(keys)
 		miss_ids = []
 		for tid, raw in zip(candidate_ids, cached_values):
@@ -948,10 +992,14 @@ async def warm_cache(request: Request, limit: int = 200, current_user: dict = De
 				for s in spans:
 					tag = s.get("tag", {})
 					sigma_alert = tag.get("sigma@alert")
-					if sigma_alert:
-						for rule_id in parse_sigma_alert(sigma_alert):
-							unique_rule_ids.add(rule_id)
-						matched_span_count += 1
+					if sigma_alert and sigma_alert.strip():
+						try:
+							for rule_id in parse_sigma_alert(sigma_alert):
+								unique_rule_ids.add(rule_id)
+							matched_span_count += 1
+						except Exception as e:
+							logger.warning(f"Failed to parse sigma alert: {e}")
+							continue
 
 				severity_scores = []
 				matched_rules = []
@@ -999,7 +1047,11 @@ async def warm_cache(request: Request, limit: int = 200, current_user: dict = De
 				if matched_rules:
 					try:
 						top_score = max(r.get("severity_score", 0) for r in matched_rules)
-					except Exception:
+					except (ValueError, TypeError) as e:
+						logger.warning(f"Severity score calculation error in warm-cache: {e}")
+						top_score = 0
+					except Exception as e:
+						logger.warning(f"Unexpected error calculating top score in warm-cache: {e}")
 						top_score = 0
 					cands = [r for r in matched_rules if r.get("severity_score", 0) == top_score]
 					cands.sort(key=lambda r: (-_level_weight(r.get("level", "")), str(r.get("sigma_id", ""))))
@@ -1028,7 +1080,11 @@ async def warm_cache(request: Request, limit: int = 200, current_user: dict = De
 					if existing_raw:
 						try:
 							existing = json.loads(existing_raw)
-						except Exception:
+						except json.JSONDecodeError as e:
+							logger.warning(f"JSON decode error for existing trace {tid}: {e}")
+							existing = {}
+						except Exception as e:
+							logger.warning(f"Unexpected error parsing existing trace {tid}: {e}")
 							existing = {}
 						prev_count = int(existing.get("matched_span_count", 0)) if isinstance(existing, dict) else 0
 						prev_unique = int(existing.get("matched_rule_unique_count", 0)) if isinstance(existing, dict) else 0
@@ -1036,8 +1092,10 @@ async def warm_cache(request: Request, limit: int = 200, current_user: dict = De
 							card["matched_span_count"] = prev_count
 						if card["matched_rule_unique_count"] < prev_unique:
 							card["matched_rule_unique_count"] = prev_unique
-				except Exception:
-					pass
+				except (redis.ConnectionError, redis.TimeoutError) as e:
+					logger.warning(f"Valkey connection error checking existing trace {tid}: {e}")
+				except Exception as e:
+					logger.warning(f"Unexpected error checking existing trace {tid}: {e}")
 
 				try:
 					from database.database import SessionLocal, LLMAnalysis
@@ -1054,19 +1112,27 @@ async def warm_cache(request: Request, limit: int = 200, current_user: dict = De
 							if llm_data.similar_trace_ids:
 								try:
 									card["ai_similar_traces"] = json.loads(llm_data.similar_trace_ids)
-								except:
+								except json.JSONDecodeError as e:
+									logger.warning(f"JSON decode error for similar traces {tid}: {e}")
+									card["ai_similar_traces"] = []
+								except Exception as e:
+									logger.warning(f"Unexpected error parsing similar traces {tid}: {e}")
 									card["ai_similar_traces"] = []
 					finally:
 						db.close()
+				except (sqlalchemy.exc.SQLAlchemyError, sqlalchemy.exc.OperationalError) as e:
+					logger.warning(f"Database error in LLM analysis for trace {tid}: {e}")
 				except Exception as e:
-					pass
+					logger.warning(f"Unexpected error in LLM analysis for trace {tid}: {e}")
 
 				try:
 					vk.set(f"trace:{tid}", json.dumps(card, ensure_ascii=False))
 					vk.expire(f"trace:{tid}", 86400)
 					warmed += 1
-				except Exception:
-					pass
+				except (redis.ConnectionError, redis.TimeoutError) as e:
+					logger.warning(f"Valkey connection error saving trace {tid}: {e}")
+				except Exception as e:
+					logger.warning(f"Valkey save error for trace {tid}: {e}")
 
 		return {"warmed": warmed, "cached": len(candidate_ids) - len(miss_ids), "total": len(candidate_ids), "ids": candidate_ids}
 	except Exception as e:

@@ -1,3 +1,4 @@
+"use strict";
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -7,6 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { usePathname, useRouter } from "next/navigation";
 import { useDashboard } from "@/context/DashboardContext";
 import { useSSE } from "@/contexts/SSEContext";
+import { isSafeURL, getSafeURL } from "@/lib/urlValidation";
 
 function SidebarComponent() {
   const pathname = usePathname();
@@ -107,7 +109,10 @@ function SidebarComponent() {
         </svg>
       ),
     },
-  ];
+  ].map((item) => ({
+    ...item,
+    href: getSafeURL(item.href, "/dashboard"), // 각 href를 안전하게 검증
+  }));
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -256,7 +261,7 @@ function SidebarComponent() {
                   </button>
                 ) : (
                   <Link
-                    href={item.href}
+                    href={getSafeURL(item.href, "/dashboard")}
                     className={`group flex items-center justify-between p-4 rounded border transition-all duration-200 w-full text-left ${
                       isActive
                         ? "bg-blue-500/20 border-blue-500/40 text-blue-300"

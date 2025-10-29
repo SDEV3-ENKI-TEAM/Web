@@ -1,3 +1,5 @@
+"use strict";
+
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
@@ -55,7 +57,10 @@ export async function proxyWithAutoRefresh(
       const data = await refreshResp.json();
       access = data?.access_token || null;
       refresh = data?.refresh_token || null;
-    } catch {}
+    } catch (jsonError) {
+      // console.warn("Failed to parse refresh token response:", jsonError);
+      // Continue with null tokens - will be handled by caller
+    }
     return { ok: true, token: access, refresh };
   };
 

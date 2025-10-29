@@ -1,15 +1,23 @@
+import sys
+from pathlib import Path
 from typing import Optional
+
+backend_dir = Path(__file__).parent.parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, HttpUrl
 from sqlalchemy.orm import Session
 import httpx
+import logging
 
 from database.database import get_db, SlackSettings
 from utils.auth_deps import get_current_user_with_roles
 from utils.crypto_utils import encrypt_str, decrypt_str
 
 router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(get_current_user_with_roles)])
+logger = logging.getLogger(__name__)
 
 class SlackSettingsIn(BaseModel):
 	webhook_url: HttpUrl
@@ -31,7 +39,11 @@ async def get_slack_settings(db: Session = Depends(get_db)):
 		return SlackSettingsOut(webhook_url_masked="", channel=None, enabled=False)
 	try:
 		dec = decrypt_str(row.webhook_url_enc)
-	except Exception:
+	except (ValueError, TypeError) as e:
+		logger.warning(f"Slack webhook URL 복호화 오류: {e}")
+		dec = ""
+	except Exception as e:
+		logger.warning(f"Slack webhook URL 복호화 중 예상치 못한 오류: {e}")
 		dec = ""
 	masked = dec[:16] + "****" if dec else ""
 	return SlackSettingsOut(webhook_url_masked=masked, channel=row.channel, enabled=row.enabled)
@@ -68,7 +80,11 @@ async def patch_slack_enabled(payload: SlackEnabledIn, db: Session = Depends(get
 	db.refresh(row)
 	try:
 		dec = decrypt_str(row.webhook_url_enc) if row.webhook_url_enc else ""
-	except Exception:
+	except (ValueError, TypeError) as e:
+		logger.warning(f"Slack webhook URL 복호화 오류 (PUT): {e}")
+		dec = ""
+	except Exception as e:
+		logger.warning(f"Slack webhook URL 복호화 중 예상치 못한 오류 (PUT): {e}")
 		dec = ""
 	masked = dec[:16] + "****" if dec else ""
 	return SlackSettingsOut(webhook_url_masked=masked, channel=row.channel, enabled=row.enabled)
@@ -85,7 +101,11 @@ async def test_slack(db: Session = Depends(get_db)):
 		raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slack not configured or disabled")
 	try:
 		webhook = decrypt_str(row.webhook_url_enc)
-	except Exception:
+	except (ValueError, TypeError) as e:
+		logger.error(f"Slack webhook URL 복호화 오류 (TEST): {e}")
+		raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slack webhook invalid")
+	except Exception as e:
+		logger.error(f"Slack webhook URL 복호화 중 예상치 못한 오류 (TEST): {e}")
 		raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slack webhook invalid")
 	payload = {
 		"text": "Slack 설정 테스트",

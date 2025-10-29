@@ -1,3 +1,5 @@
+"use strict";
+
 export class SSEManager {
   private es: EventSource | null = null;
   private reconnectAttempts = 0;
@@ -14,9 +16,9 @@ export class SSEManager {
 
   connect(): void {
     const token =
-      typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      typeof window !== "undefined" ? sessionStorage.getItem("token") : null;
     if (!token) {
-      console.error("JWT 토큰이 없습니다. 로그인이 필요합니다.");
+      // console.error("JWT 토큰이 없습니다. 로그인이 필요합니다.");
       return;
     }
 
@@ -25,13 +27,13 @@ export class SSEManager {
     try {
       this.es = new EventSource(sseUrl);
     } catch (e) {
-      console.error("SSE 연결 생성 실패:", e);
+      // console.error("SSE 연결 생성 실패:", e);
       this.attemptReconnect();
       return;
     }
 
     this.es.onopen = () => {
-      console.log("SSE 연결됨");
+      // console.log("SSE 연결됨");
       this.reconnectAttempts = 0;
       if (this.onConnectCallback) {
         this.onConnectCallback();
@@ -45,32 +47,38 @@ export class SSEManager {
           this.onMessageCallback(data);
         }
       } catch (error) {
-        console.error("SSE 메시지 파싱 오류:", error);
+        // console.error("SSE 메시지 파싱 오류:", error);
       }
     };
 
     this.es.onerror = (event: any) => {
-      console.warn("SSE 오류/연결 해제 감지:", event);
+      // console.warn("SSE 오류/연결 해제 감지:", event);
       if (this.onDisconnectCallback) {
         this.onDisconnectCallback();
       }
       try {
         this.es?.close();
-      } catch {}
+      } catch (closeError) {
+        // console.warn(
+          "Failed to close SSE connection during error handling:",
+          closeError
+        );
+        // SSE close failure during error handling is not critical
+      }
       this.attemptReconnect();
     };
   }
 
   private attemptReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error("최대 재연결 시도 횟수 초과");
+      // console.error("최대 재연결 시도 횟수 초과");
       return;
     }
 
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
 
-    console.log(
+    // console.log(
       `${delay}ms 후 재연결 시도 ${this.reconnectAttempts}/${this.maxReconnectAttempts}`
     );
 

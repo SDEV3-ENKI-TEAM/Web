@@ -74,6 +74,7 @@ class RefreshToken(Base):
 	id = Column(Integer, primary_key=True, index=True)
 	user_id = Column(Integer, nullable=False)
 	token_hash = Column(String(255), nullable=False, index=True)
+	token_salt = Column(String(255), nullable=False)  # 솔트 필드 추가
 	expires_at = Column(DateTime(timezone=True), nullable=False)
 	is_revoked = Column(Boolean, default=False)
 	created_at = Column(DateTime(timezone=True), server_default=func.now())

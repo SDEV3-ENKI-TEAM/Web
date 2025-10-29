@@ -50,7 +50,7 @@ export default function Dashboard() {
         setStats(statsData);
         setError(null);
       } catch (err) {
-        console.error("Failed to load data:", err);
+        // console.error("Failed to load data:", err);
         setError("보안 데이터를 불러오는데 실패했습니다");
       } finally {
         setLoading(false);
@@ -69,7 +69,7 @@ export default function Dashboard() {
         setCursor(data.nextCursor);
         setHasMore(data.hasMore);
       } catch (err) {
-        console.error("무한스크롤 데이터 로드 실패:", err);
+        // console.error("무한스크롤 데이터 로드 실패:", err);
         setInfiniteAlarms([]);
       } finally {
         setInfiniteLoading(false);
@@ -90,7 +90,7 @@ export default function Dashboard() {
       setCursor(data.nextCursor);
       setHasMore(data.hasMore);
     } catch (err) {
-      console.error("추가 데이터 로드 실패:", err);
+      // console.error("추가 데이터 로드 실패:", err);
     } finally {
       setInfiniteLoading(false);
     }
@@ -102,7 +102,7 @@ export default function Dashboard() {
         const data = await fetchTimeseries();
         setTimeseriesData(data);
       } catch (err) {
-        console.error("시계열 데이터 로드 실패:", err);
+        // console.error("시계열 데이터 로드 실패:", err);
         setTimeseriesData([]);
       }
     };

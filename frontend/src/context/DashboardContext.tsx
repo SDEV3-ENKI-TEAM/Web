@@ -1,3 +1,4 @@
+"use strict";
 "use client";
 
 import React, {
@@ -139,7 +140,7 @@ const getInitialWidgets = (): DashboardWidget[] => {
     return defaultWidgets;
   }
 
-  const saved = localStorage.getItem("dashboard-layout");
+  const saved = sessionStorage.getItem("dashboard-layout");
   if (saved) {
     try {
       const parsedWidgets = JSON.parse(saved);
@@ -147,7 +148,7 @@ const getInitialWidgets = (): DashboardWidget[] => {
         return parsedWidgets;
       }
     } catch (error) {
-      console.error("Failed to load dashboard layout:", error);
+      // console.error("Failed to load dashboard layout:", error);
     }
   }
   return defaultWidgets;
@@ -165,7 +166,15 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (widgets.length > 0 && isLoaded) {
-      localStorage.setItem("dashboard-layout", JSON.stringify(widgets));
+      sessionStorage.setItem(
+        "dashboard-layout",
+        JSON.stringify(widgets, (key, value) => {
+          if (typeof value === "string") {
+            return value.replace(/[<>]/g, ""); // XSS 방지를 위한 필터링
+          }
+          return value;
+        })
+      );
     }
   }, [widgets, isLoaded]);
 
@@ -237,7 +246,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
   const resetLayout = useCallback(() => {
     setWidgets(defaultWidgets);
-    localStorage.removeItem("dashboard-layout");
+    sessionStorage.removeItem("dashboard-layout");
   }, []);
 
   const getAvailableWidgetTypes = useCallback(() => availableWidgetTypes, []);

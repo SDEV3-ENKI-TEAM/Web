@@ -1,7 +1,7 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
 
 interface LoadingScreenProps {
   message?: string;
@@ -235,10 +235,7 @@ export default function LoadingScreen({
                 height: "30%",
                 top: "20%",
                 left: "20%",
-                background: `radial-gradient(circle, ${bubble.color.replace(
-                  /0\.\d/,
-                  "1"
-                )} 0%, transparent 70%)`,
+                background: `radial-gradient(circle, ${bubble.color} 0%, transparent 70%)`,
                 filter: "blur(1px)",
               }}
             ></div>

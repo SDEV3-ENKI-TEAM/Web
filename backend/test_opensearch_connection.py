@@ -51,11 +51,12 @@ def test_opensearch_connection():
     opensearch_password = os.getenv('OPENSEARCH_PASSWORD')
     
     # 호스트 정리 (프로토콜 제거)
-    if opensearch_host.startswith('https://'):
-        opensearch_host = opensearch_host.replace('https://', '')
-        opensearch_use_ssl = True
-    elif opensearch_host.startswith('http://'):
-        opensearch_host = opensearch_host.replace('http://', '')
+    if opensearch_host and isinstance(opensearch_host, str):
+        if opensearch_host.startswith('https://'):
+            opensearch_host = opensearch_host.replace('https://', '')
+            opensearch_use_ssl = True
+        elif opensearch_host.startswith('http://'):
+            opensearch_host = opensearch_host.replace('http://', '')
     
     # 연결 정보 출력
     print("📋 연결 정보:")

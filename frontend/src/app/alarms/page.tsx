@@ -138,7 +138,7 @@ function AlarmsContent() {
       const response = await fetchWithAuth("/api/alarms/check", {
         method: "POST",
         body: JSON.stringify({
-          trace_id: trace_id,
+          trace_id: trace_id?.replace(/[<>]/g, ""), // XSS 방지를 위한 필터링
           checked: newCheckedStatus,
         }),
       });
@@ -148,7 +148,7 @@ function AlarmsContent() {
       }
       updateAlarm(trace_id, { checked: newCheckedStatus });
     } catch (error) {
-      console.error("알림 상태 업데이트 실패:", error);
+      // console.error("알림 상태 업데이트 실패:", error);
       alert("알림 상태 업데이트에 실패했습니다.");
     }
   };

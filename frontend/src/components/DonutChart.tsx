@@ -1,3 +1,4 @@
+"use strict";
 "use client";
 
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
@@ -46,7 +47,7 @@ export default function DonutChart({
         const data = await fetchDonutStats();
         setStats(data);
       } catch (error) {
-        console.error("도넛 차트 데이터 로드 실패:", error);
+        // console.error("도넛 차트 데이터 로드 실패:", error);
       } finally {
         setLoading(false);
       }

@@ -1,9 +1,11 @@
+"use strict";
 "use client";
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/context/AuthContext";
 import React from "react";
+import { usePathname } from "next/navigation";
 
 interface HeaderProps {
   onLogout: () => void;
@@ -14,6 +16,7 @@ export default function Header({ onLogout, onOpenSettings }: HeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { currentUser } = useAuth();
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
+  const pathname = usePathname();
 
   React.useEffect(() => {
     setCurrentTime(new Date());
@@ -24,6 +27,7 @@ export default function Header({ onLogout, onOpenSettings }: HeaderProps) {
     return () => clearInterval(interval);
   }, []);
 
+  const isDashboard = pathname?.startsWith("/dashboard");
   return (
     <header className="bg-slate-800/50 backdrop-blur-xl border-b border-slate-700/50 font-mono relative z-[9999]">
       <div className="flex items-center justify-between px-6 py-3">
@@ -94,50 +98,53 @@ export default function Header({ onLogout, onOpenSettings }: HeaderProps) {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -10 }}
                   transition={{ duration: 0.2 }}
-                  className="absolute right-0 mt-2 w-60 h-56 bg-slate-900/95 backdrop-blur-xl rounded border border-slate-700 shadow-2xl z-[99999] overflow-hidden"
+                  className={`absolute right-0 mt-2 ${
+                    isDashboard ? "w-60 h-56" : "w-60 h h-36"
+                  } bg-slate-900/95 backdrop-blur-xl rounded border border-slate-700 shadow-2xl z-[99999] overflow-hidden`}
                 >
                   {/* Terminal Header */}
                   <div className="bg-slate-800/70 border-b border-slate-700/50 p-3 flex items-center justify-center">
                     <span className="text-slate-400 text-xm">사용자 메뉴</span>
                   </div>
-                  {/* Settings */}
-                  <motion.button
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    onClick={() => {
-                      onOpenSettings?.();
-                      setIsMenuOpen(false);
-                    }}
-                    className="w-full text-left px-4 py-6 text-sm text-slate-300 hover:bg-slate-800/50 hover:text-blue-400 transition-all duration-200 rounded border border-transparent hover:border-slate-600"
-                  >
-                    <div className="flex items-center gap-2">
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                        />
-                      </svg>
-                      <div>
-                        <div className="font-semibold">대시보드 설정</div>
-                        <div className="text-xs text-slate-500">
-                          화면 구성 변경
+                  {onOpenSettings && pathname?.startsWith("/dashboard") && (
+                    <motion.button
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      onClick={() => {
+                        onOpenSettings();
+                        setIsMenuOpen(false);
+                      }}
+                      className="w-full text-left px-4 py-6 text-sm text-slate-300 hover:bg-slate-800/50 hover:text-blue-400 transition-all duration-200 rounded border border-transparent hover:border-slate-600"
+                    >
+                      <div className="flex items-center gap-2">
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                          />
+                        </svg>
+                        <div>
+                          <div className="font-semibold">대시보드 설정</div>
+                          <div className="text-xs text-slate-500">
+                            화면 구성 변경
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </motion.button>
+                    </motion.button>
+                  )}
                   {/* Logout */}
                   <motion.button
                     initial={{ opacity: 0, y: 10 }}

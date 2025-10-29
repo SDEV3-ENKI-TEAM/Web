@@ -1,3 +1,5 @@
+"use strict";
+
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
@@ -45,7 +47,7 @@ export async function POST(request: NextRequest) {
 
     return res;
   } catch (error) {
-    console.error("Signup error:", error);
+    // console.error("Signup error:", error);
     return NextResponse.json({ error: "signup failed" }, { status: 500 });
   }
 }
